@@ -1,0 +1,254 @@
+import os
+from pathlib import Path
+
+from fastapi import FastAPI, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+from api.auth import TokenAuthMiddleware
+from api.routes import jobs as jobs_routes
+from api.routes import settings as settings_routes
+from api.routes import model_presets as model_presets_routes
+from api.routes import tunnel as tunnel_routes
+from api.routes import collector as collector_routes
+from api.routes import retry as retry_routes
+from api.routes import terminal as terminal_routes
+from api.routes import exploits as exploits_routes
+from api.routes import containers as containers_routes
+from api.routes import player as player_routes
+from api.routes import (
+    crypto_module,
+    forensic_module,
+    jeopardy,
+    live_fire_module,
+    misc_module,
+    pwn_module,
+    rev_module,
+    web3_module,
+    web_module,
+    vpn as vpn_routes,
+)
+from modules.settings_io import get_setting
+
+DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+(DATA_DIR / "uploads").mkdir(exist_ok=True)
+(DATA_DIR / "jobs").mkdir(exist_ok=True)
+(DATA_DIR / "exploits").mkdir(exist_ok=True)
+
+WEB_UI_DIR = Path("/app/web-ui")
+
+app = FastAPI(title="CTFmanager", version="0.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(TokenAuthMiddleware)
+
+
+# Force browsers to revalidate the web-ui assets so a redeploy's new
+# app.js / style.css / index.html is picked up immediately instead of a
+# stale cached copy. `no-cache` still allows a cheap 304 via StaticFiles'
+# ETag when the file is unchanged — it only forbids using the cached copy
+# WITHOUT revalidating. Without this, the bind-mounted assets serve fresh
+# from disk but the browser keeps running old JS after a deploy (observed:
+# the +add-target button "not working" because the cached app.js predated
+# its handler). Scoped to the document + /static so API responses are
+# untouched.
+_NOCACHE_PATHS = {"/", "/index.html", "/login", "/terminal"}
+
+
+@app.middleware("http")
+async def _revalidate_web_ui(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path in _NOCACHE_PATHS or path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+app.include_router(jobs_routes.router, prefix="/api/jobs", tags=["jobs"])
+# The one ingest the dashboard uses. The per-module routes below stay mounted
+# for the AI Player, which posts to them directly.
+app.include_router(jeopardy.router, prefix="/api/jeopardy", tags=["jeopardy"])
+app.include_router(web_module.router, prefix="/api/modules/web", tags=["web"])
+app.include_router(pwn_module.router, prefix="/api/modules/pwn", tags=["pwn"])
+app.include_router(forensic_module.router, prefix="/api/modules/forensic", tags=["forensic"])
+app.include_router(misc_module.router, prefix="/api/modules/misc", tags=["misc"])
+app.include_router(crypto_module.router, prefix="/api/modules/crypto", tags=["crypto"])
+app.include_router(rev_module.router, prefix="/api/modules/rev", tags=["rev"])
+app.include_router(web3_module.router, prefix="/api/modules/web3", tags=["web3"])
+app.include_router(
+    live_fire_module.router, prefix="/api/modules/live-fire", tags=["live-fire"]
+)
+app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+app.include_router(vpn_routes.router, prefix="/api/vpn", tags=["settings"])
+app.include_router(model_presets_routes.router, prefix="/api/model-presets", tags=["settings"])
+app.include_router(tunnel_routes.router, prefix="/api/tunnel", tags=["tunnel"])
+app.include_router(terminal_routes.router, prefix="/api/terminal", tags=["terminal"])
+app.include_router(collector_routes.router, prefix="/api/collector", tags=["collector"])
+app.include_router(retry_routes.router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(exploits_routes.router, prefix="/api/exploits", tags=["exploits"])
+app.include_router(containers_routes.router, prefix="/api/containers", tags=["containers"])
+# The AI Player runs in THIS process, not on a worker slot: the thing that
+# creates jobs must not compete for a slot with the jobs it creates.
+app.include_router(player_routes.router, prefix="/api/player", tags=["player"])
+
+
+# --- live per-job MONITOR --------------------------------------------------
+# Curated, LLM-narrated signal feed over each running job's run.log, written
+# to <job>/monitor.jsonl and streamed via the SSE `monitor` channel. The
+# supervisor sweeps running jobs and ensures one monitor task each (always-on;
+# opt out with MONITOR_ENABLED=0). Best-effort — never blocks startup.
+@app.on_event("startup")
+async def _start_monitor_supervisor():
+    try:
+        from modules._monitor import start_supervisor
+        start_supervisor()
+    except Exception:
+        pass
+
+
+# --- per-job MANAGER -------------------------------------------------------
+# Answers the two questions a job row could not: how likely is this to end in a
+# flag, and how far from a working exploit is it. Writes <job>/manager.json,
+# which the job list reads. Its own role, so its provider and model are chosen
+# in Settings independently of the stack the job runs on. Default OFF.
+#
+# The supervisor is started unconditionally and gates INSIDE its loop: the
+# setting is a live toggle, and a supervisor that refused to start because the
+# feature was off at boot would need an api restart to notice it was turned on.
+@app.on_event("startup")
+async def _start_manager_supervisor():
+    try:
+        from modules._manager import start_supervisor as _mgr_supervisor
+        _mgr_supervisor()
+    except Exception:
+        pass
+
+
+# Flag harvester: a model re-reads each running job's appended output and
+# writes anything it judges to be a real flag into <job>/flag_grain.txt.
+# Advisory only — it never touches meta.flags or a job status. Opt out with
+# HARVESTER_ENABLED=0, or the Settings toggle.
+@app.on_event("startup")
+async def _start_harvester_supervisor():
+    try:
+        from modules._harvester import start_supervisor as _start_harvester
+        _start_harvester()
+    except Exception:
+        pass
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "auth_required": bool(str(get_setting("auth_token") or "").strip())}
+
+
+@app.get("/api/version")
+def version_info():
+    """Version banner for the UI so the operator can confirm a redeploy took.
+
+    `commit` / `commit_date` are stamped into web-ui/version.json at deploy time
+    (start.sh / deploy.sh — the container itself has no git). `patched_at` is
+    computed LIVE from the newest bind-mounted source mtime, so it stays
+    accurate even if the stamp is missing or stale (e.g. a code edit that was
+    hot-reloaded without re-running a deploy script)."""
+    import json as _json
+    import datetime as _dt
+
+    info = {
+        "version": app.version,
+        "commit": None,
+        "commit_date": None,
+        "deployed_at": None,
+        "patched_at": None,
+    }
+    stamp = WEB_UI_DIR / "version.json"
+    try:
+        if stamp.exists():
+            d = _json.loads(stamp.read_text())
+            for k in ("commit", "commit_date", "deployed_at"):
+                if d.get(k):
+                    info[k] = d[k]
+    except Exception:
+        pass
+
+    newest = 0.0
+    for base in ("/app/api", "/app/modules", "/app/web-ui"):
+        root = Path(base)
+        if not root.exists():
+            continue
+        for f in root.rglob("*"):
+            if (not f.is_file() or "__pycache__" in f.parts
+                    or f.name == "version.json"):
+                continue
+            try:
+                mt = f.stat().st_mtime
+            except OSError:
+                continue
+            if mt > newest:
+                newest = mt
+    if newest:
+        info["patched_at"] = _dt.datetime.fromtimestamp(
+            newest, _dt.timezone.utc).isoformat()
+    return info
+
+
+@app.get("/api/modules")
+def list_modules():
+    return {
+        "modules": [
+            {"id": "web", "name": "Web Exploitation", "status": "available"},
+            {"id": "pwn", "name": "Pwnable (ghiant)", "status": "available"},
+            {"id": "forensic", "name": "Forensic", "status": "available"},
+            {"id": "misc", "name": "Misc / Stego", "status": "available"},
+            {"id": "crypto", "name": "Crypto", "status": "available"},
+            {"id": "rev", "name": "Reversing (ghiant)", "status": "available"},
+            {"id": "web3", "name": "Web3 / Smart Contract", "status": "available"},
+            {"id": "live-fire", "name": "Live-fire Patch", "status": "available"},
+        ]
+    }
+
+
+@app.get("/login", response_class=FileResponse)
+def login_page():
+    return FileResponse(str(WEB_UI_DIR / "login.html"))
+
+
+@app.post("/login")
+def login_post(token: str = Form(...)):
+    expected = str(get_setting("auth_token") or "").strip()
+    if not expected:
+        return RedirectResponse("/", status_code=303)
+    if token != expected:
+        return JSONResponse({"detail": "wrong token"}, status_code=401)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(
+        "ctfmanager_token", token,
+        httponly=True, samesite="lax", max_age=30 * 24 * 3600,
+    )
+    return resp
+
+
+@app.post("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("ctfmanager_token")
+    return resp
+
+
+if WEB_UI_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(WEB_UI_DIR)), name="static")
+
+    @app.get("/")
+    def index():
+        return FileResponse(str(WEB_UI_DIR / "index.html"))
+
+    @app.get("/terminal", response_class=FileResponse)
+    def terminal_page():
+        return FileResponse(str(WEB_UI_DIR / "terminal.html"))

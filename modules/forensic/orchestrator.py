@@ -1,0 +1,615 @@
+import asyncio
+import json
+import os
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import anyio
+import docker
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+    query,
+)
+
+from modules._common import (
+    run_report_phase,
+    REPORT_SCHEMA_FORENSIC,
+    capture_session_id,
+    agent_heartbeat,
+    classify_stop_reason,
+    extract_cost,
+    no_flag_status,
+    prior_session_cost,
+    format_tool_result,
+    tool_result_lines,
+    tool_use_line,
+    job_turn_timeout_s,
+    kill_guard_hooks,
+    log_thinking,
+    read_meta,
+    reap_chal_containers,
+    reap_chal_images,
+    resolve_effort,
+    resolve_main_model,
+    scan_job_for_flags,
+    write_meta,
+)
+from modules.forensic.prompts import SYSTEM_PROMPT, build_user_prompt
+# This orchestrator spawns its own analysis container, a SIBLING of the
+# worker slot that neither the slot's cap nor the docker shim bounds.
+# Imported rather than redeclared so it cannot drift from the sandbox cap.
+from modules._runner import runner_nano_cpus
+
+from modules.settings_io import apply_to_env, get_setting, has_claude_auth
+from modules._sdk_buffer import AGENT_MAX_BUFFER_BYTES
+from modules._skills import SETTING_SOURCES, SKILLS, plugins
+from modules.agent_provider import (
+    active_provider,
+    has_provider_auth,
+    provider_display_name,
+    coerce_model_for_provider,
+)
+
+DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
+JOBS_DIR = DATA_DIR / "jobs"
+
+FORENSIC_IMAGE = "hextech_ctf_tool-forensic"
+FORENSIC_TIMEOUT_S = 1800  # 30 min — vol3 + tsk on big images can be slow
+FORENSIC_MEM = "6g"
+
+
+
+def _resume_sid(job_id: str) -> Optional[str]:
+    """The prior agent session this job should continue, or None.
+
+    `/retry` and `/resume` mint a NEW job id and write the parent's session id
+    into the child's meta as `resume_session_id` (api/routes/retry.py). Every
+    analyzer module gets this for free through
+    `modules._common.make_main_session_options`, which passes it as `resume=`.
+    This module builds its session options inline and so has to read it here —
+    without this the field was written on every retry child and never read, and
+    the retry started a brand-new thread with no history.
+    """
+    return (read_meta(job_id) or {}).get("resume_session_id") or None
+
+def _job_dir(job_id: str) -> Path:
+    p = JOBS_DIR / job_id
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _log(job_id: str, line: str) -> None:
+    from modules.job_secrets import redact_job_value
+
+    line = str(redact_job_value(job_id, str(line)))
+    f = _job_dir(job_id) / "run.log"
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    with f.open("a") as fp:
+        fp.write(f"[{ts}] {line}\n")
+
+
+_TERMINAL_STATUSES = {"finished", "failed", "no_flag", "stopped", "flag_ready"}
+
+
+def _write_meta(job_id: str, **updates) -> None:
+    f = _job_dir(job_id) / "meta.json"
+    meta = {}
+    if f.exists():
+        meta = json.loads(f.read_text())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_status = updates.get("status")
+    if new_status == "running" and not meta.get("started_at"):
+        updates.setdefault("started_at", now_iso)
+    if new_status in _TERMINAL_STATUSES and not meta.get("finished_at"):
+        updates.setdefault("finished_at", now_iso)
+    meta.update(updates)
+    meta["updated_at"] = now_iso
+    from modules.job_secrets import redact_job_value
+
+    meta = redact_job_value(job_id, meta)
+    f.write_text(json.dumps(meta, indent=2))
+
+
+def _host_path(job_id: str) -> str:
+    host_root = os.environ.get("HOST_DATA_DIR")
+    if not host_root:
+        raise RuntimeError("HOST_DATA_DIR not set on worker")
+    return f"{host_root.rstrip('/')}/jobs/{job_id}"
+
+
+def _summary_agent_evidence(
+    agent_summary: object,
+) -> tuple[Optional[bool], Optional[str]]:
+    """Translate this one-shot agent's explicit result into scan evidence.
+
+    Forensic has no separate auto-run sandbox phase.  An explicit provider
+    result therefore proves that such a sandbox did not start, while a missing
+    or malformed result remains unknown for skip-auth and legacy paths.
+    """
+    if not isinstance(agent_summary, dict):
+        return None, None
+    agent_result = agent_summary.get("result")
+    if not isinstance(agent_result, dict):
+        return None, None
+    is_error = agent_result.get("is_error")
+    if is_error is True:
+        return False, "summary agent returned is_error=true"
+    if is_error is False:
+        return False, None
+    return None, None
+
+
+def _spawn_collector(
+    job_id: str,
+    image_rel: str,
+    image_type: str,
+    target_os: str,
+    bulk_extractor: bool,
+) -> str:
+    client = docker.from_env()
+    cmd = [f"/job/{image_rel}", "--type", image_type, "--os", target_os, "--out", "/job"]
+    if bulk_extractor:
+        cmd.append("--bulk-extractor")
+
+    container = client.containers.run(
+        image=FORENSIC_IMAGE,
+        command=cmd,
+        volumes={_host_path(job_id): {"bind": "/job", "mode": "rw"}},
+        mem_limit=FORENSIC_MEM,
+        # memswap == mem: with mem alone docker grants swap up to 2x the
+        # cap, and slow swap thrash is what wedged this VM twice.
+        memswap_limit=FORENSIC_MEM,
+        nano_cpus=runner_nano_cpus(),
+        # network=bridge by default — needed so volatility3 can fetch PDB
+        # symbols from microsoft for unknown windows builds.
+        detach=True,
+        labels={"hextech_ctf_tool_job_id": job_id, "hextech_ctf_tool_role": "forensic"},
+    )
+    try:
+        result = container.wait(timeout=FORENSIC_TIMEOUT_S)
+        logs = container.logs().decode("utf-8", errors="replace")
+        sc = result.get("StatusCode", 1)
+        if sc != 0:
+            raise RuntimeError(f"forensic collector exited with code {sc}\n{logs[-4000:]}")
+    finally:
+        try:
+            container.remove(force=True, v=True)
+        except Exception:
+            pass
+    return logs
+
+
+async def _claude_summary(
+    job_id: str,
+    target_os: str,
+    kind: str,
+    description: Optional[str],
+    model_override: Optional[str] = None,
+) -> dict:
+    """Forensic summary agent. Backend follows Settings ``agent_provider``."""
+    work_dir = _job_dir(job_id)
+    model = coerce_model_for_provider(resolve_main_model(model_override))
+    # Per-job scratch dir (see modules/_common.py make_main_session_options
+    # for rationale). Cleanup is implicit via job DELETE rmtree.
+    tmp_dir = Path(work_dir) / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    _tmp_str = str(tmp_dir)
+    prompt = build_user_prompt(target_os, kind, description, flag_format=(read_meta(job_id) or {}).get("flag_format"))
+    from modules._common import build_exploit_library_hint
+    # No chal_name: the name-relevance ranker was retired after it was
+    # measured on the live corpus (0 of 89 jobs saw a different SET of
+    # entries because of it). The hint is the twelve newest entries for
+    # this module, which is what it rendered in practice anyway.
+    _lib_hint = build_exploit_library_hint("forensic")
+    if _lib_hint:
+        prompt = _lib_hint + "\n\n" + prompt
+    # 'Docker challenge' opt-in: detect a bundled Dockerfile/compose and instruct
+    # the agent to build+run it. Returns "" (no-op) when the box is unticked.
+    from modules._common import docker_challenge_block
+    _docker_block = docker_challenge_block(job_id)
+    if _docker_block:
+        prompt = prompt + "\n\n" + _docker_block
+    # Optional remote target. Read from META (not a run_job argument) so a
+    # /retry, a /resume or a PATCH /target reaches the agent with no queue
+    # signature change — the same wiring rev uses. script_driven=False because
+    # this module has no sandbox runner: the argv[1]/TARGETS mandate would tell
+    # the agent to re-point an exploit.py it never writes.
+    from modules._prompts import build_target_directive
+    _meta_now = read_meta(job_id)
+    _tgt_block = build_target_directive(
+        (_meta_now.get("target_url") or "").strip() or None,
+        _meta_now.get("target_urls"),
+        script_driven=False,
+    )
+    if _tgt_block:
+        prompt = prompt + "\n\n" + _tgt_block
+
+    # HISTORY, kept because the measurement is worth more than the wire it
+    # justified. The operator's output-language choice used to reach an
+    # ANALYZER-shaped module (web/pwn/crypto/web3/rev) through
+    # make_main_session_options(); this module is ORCHESTRATOR-shaped, built
+    # its own session options for all three backends, and so silently dropped
+    # the setting until it was wired in here.
+    #
+    # NONE OF THAT APPLIES NOW (2026-09-20). The setting no longer reaches any
+    # solving prompt in any module: the agents solve best in English, and
+    # steering their working language spent accuracy on prose nobody reads —
+    # report.md, findings.json and the flag are technical either way. It now
+    # picks the MONITOR feed's language and nothing else. The paragraphs below
+    # record how the drop was found, because the same shape will recur.
+    #
+    # Measured on job 11738a6b9db7 (misc, output_language='ko'): all four of its
+    # codex sessions carried ZERO occurrences of the "## OUTPUT LANGUAGE"
+    # directive and the agent wrote English throughout, while pwn job
+    # b8f728d1f3b6 with the identical setting carried 1-5 per session and wrote
+    # Korean.
+    #
+    # THE ENV VAR IS NOT THE FIX, and checking it is how this hides. The running
+    # codex process for that misc job DID have AGENT_OUTPUT_LANGUAGE=ko —
+    # codex_cli.py consults it only when RESUMING a turn (_instructions, the
+    # `resuming` branch) and when writing subagent role configs, never for the
+    # initial system prompt. Only the prompt itself reaches turn 1.
+    #
+    system_prompt = SYSTEM_PROMPT
+
+    provider = active_provider()
+    summary: dict = {"messages": 0, "tool_calls": 0, "agent_provider": provider}
+
+    # ---- OpenAI GPT path --------------------------------------------------
+    if provider == "gpt":
+        from modules.gpt_agent import (
+            GptAgentClient,
+            GptSessionOptions,
+            AssistantMessage as GptAM,
+            ResultMessage as GptRM,
+        )
+        turn_timeout_s = job_turn_timeout_s(job_id)
+        _log(
+            job_id,
+            f"Launching {provider_display_name('gpt')} summary agent "
+            f"(model={model}, turn_timeout={turn_timeout_s:.0f}s)",
+        )
+        opts = GptSessionOptions(
+            system_prompt=system_prompt,
+            model=model,
+            cwd=str(work_dir),
+            effort=resolve_effort(read_meta(job_id).get("effort")),
+            env={
+                "JOB_ID": job_id,
+                "TMPDIR": _tmp_str,
+                "TMP": _tmp_str,
+                "TEMP": _tmp_str,
+            },
+            enable_tools=True,
+            enable_subagents=True,
+            turn_timeout_s=turn_timeout_s,
+            resume=_resume_sid(job_id),
+        )
+        async with GptAgentClient(opts) as client:
+            await client.query(prompt)
+            async for msg in client.receive_response():
+                capture_session_id(msg, job_id)
+                agent_heartbeat(job_id, msg)
+                if isinstance(msg, GptAM):
+                    summary["messages"] += 1
+                    for block in (getattr(msg, "content", None) or []):
+                        if type(block).__name__ == "TextBlock":
+                            _log(job_id, f"AGENT: {(getattr(block, 'text', '') or '')[:500]}")
+                        elif type(block).__name__ == "ToolUseBlock":
+                            summary["tool_calls"] += 1
+                            _log(job_id, tool_use_line(block))
+                elif type(msg).__name__ == "UserMessage":
+                    # Tool RESULTS. Without this branch the GPT summary agent
+                    # logged 41 commands and 0 outputs on job 7d409c40249e:
+                    # 126 KB of events, 3 KB of run.log.
+                    for _rline in tool_result_lines(msg):
+                        _log(job_id, _rline)
+                elif isinstance(msg, GptRM):
+                    summary["result"] = {
+                        "duration_ms": getattr(msg, "duration_ms", None),
+                        "num_turns": getattr(msg, "num_turns", None),
+                        "total_cost_usd": getattr(msg, "total_cost_usd", None),
+                        "is_error": bool(getattr(msg, "is_error", False)),
+                        "stop_reason": getattr(msg, "stop_reason", None),
+                    }
+        return summary
+
+    # ---- Grok path --------------------------------------------------------
+    if provider == "grok":
+        from modules.grok_acp import (
+            GrokACPClient,
+            GrokSessionOptions,
+            AssistantMessage as GrokAM,
+            ResultMessage as GrokRM,
+            ToolUseBlock as GrokTUB,
+        )
+        from modules._prompts import adapt_system_prompt_for_grok
+        turn_timeout_s = job_turn_timeout_s(job_id)
+        _log(
+            job_id,
+            f"Launching {provider_display_name('grok')} summary agent "
+            f"(model={model}, turn_timeout={turn_timeout_s:.0f}s)",
+        )
+        opts = GrokSessionOptions(
+            system_prompt=adapt_system_prompt_for_grok(system_prompt),
+            model=model,
+            cwd=str(work_dir),
+            effort=resolve_effort(read_meta(job_id).get("effort")),
+            env={
+                "JOB_ID": job_id,
+                "TMPDIR": _tmp_str,
+                "TMP": _tmp_str,
+                "TEMP": _tmp_str,
+            },
+            turn_timeout_s=turn_timeout_s,
+            resume=_resume_sid(job_id),
+        )
+        async with GrokACPClient(opts) as client:
+            if client.session_id:
+                try:
+                    write_meta(job_id, agent_session_id=client.session_id)
+                except Exception:
+                    pass
+            await client.query(prompt)
+            async for msg in client.receive_response():
+                agent_heartbeat(job_id, msg)
+                if isinstance(msg, GrokAM):
+                    summary["messages"] += 1
+                    for block in (getattr(msg, "content", None) or []):
+                        if type(block).__name__ == "TextBlock":
+                            _log(job_id, f"AGENT: {(getattr(block, 'text', '') or '')[:500]}")
+                        elif type(block).__name__ == "ToolUseBlock" or isinstance(block, GrokTUB):
+                            summary["tool_calls"] += 1
+                            inp = getattr(block, "input", None) or {}
+                            try:
+                                args_preview = json.dumps(inp)[:200]
+                            except Exception:
+                                args_preview = str(inp)[:200]
+                            _log(job_id, f"TOOL {getattr(block, 'name', '?')}: {args_preview}")
+                elif type(msg).__name__ == "UserMessage":
+                    # Grok logged arguments but never results — see
+                    # tool_result_lines in modules/_common.py.
+                    for _rline in tool_result_lines(msg):
+                        _log(job_id, _rline)
+                elif isinstance(msg, GrokRM):
+                    summary["result"] = {
+                        "duration_ms": getattr(msg, "duration_ms", None),
+                        "num_turns": getattr(msg, "num_turns", None),
+                        "total_cost_usd": getattr(msg, "total_cost_usd", None),
+                        "is_error": bool(getattr(msg, "is_error", False)),
+                        "stop_reason": getattr(msg, "stop_reason", None),
+                    }
+        return summary
+
+    # ---- Claude path ------------------------------------------------------
+    options = ClaudeAgentOptions(
+        plugins=plugins(),
+        skills=SKILLS,
+        setting_sources=SETTING_SOURCES,
+        max_buffer_size=AGENT_MAX_BUFFER_BYTES,
+        system_prompt=system_prompt,
+        model=model,
+        cwd=str(work_dir),
+        allowed_tools=["Read", "Bash", "Glob", "Grep", "Write"],
+        permission_mode="bypassPermissions",
+        env={
+            "JOB_ID": job_id,
+            "TMPDIR": _tmp_str,
+            "TMP":    _tmp_str,
+            "TEMP":   _tmp_str,
+        },
+        effort=resolve_effort(read_meta(job_id).get("effort")),
+        # Bash kill-guard (the anti-writeup web-research block was removed
+        # 2026-07-22 — kill_guard_hooks no longer denies WebSearch/WebFetch).
+        hooks=kill_guard_hooks(job_id),
+        resume=_resume_sid(job_id),
+        fork_session=bool(_resume_sid(job_id)),
+    )
+    _log(job_id, f"Launching {provider_display_name('claude')} summary agent (model={model})")
+
+    async for msg in query(prompt=prompt, options=options):
+        capture_session_id(msg, job_id)
+        agent_heartbeat(job_id, msg)
+        if isinstance(msg, AssistantMessage):
+            summary["messages"] += 1
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    _log(job_id, f"AGENT: {block.text[:500]}")
+                elif isinstance(block, ToolUseBlock):
+                    summary["tool_calls"] += 1
+                    args_preview = json.dumps(block.input)[:200]
+                    _log(job_id, f"TOOL {block.name}: {args_preview}")
+                elif isinstance(block, ThinkingBlock):
+                    log_thinking(
+                        lambda s: _log(job_id, s),
+                        "THINK", block.thinking,
+                    )
+        elif isinstance(msg, UserMessage):
+            content = msg.content if isinstance(msg.content, list) else []
+            for block in content:
+                if isinstance(block, ToolResultBlock):
+                    _log(
+                        job_id,
+                        format_tool_result(block.content, block.is_error),
+                    )
+        elif isinstance(msg, ResultMessage):
+            summary["result"] = {
+                "duration_ms": msg.duration_ms,
+                "num_turns": msg.num_turns,
+                "total_cost_usd": msg.total_cost_usd,
+                "is_error": msg.is_error,
+                "stop_reason": getattr(msg, "stop_reason", None),
+            }
+    return summary
+
+
+
+async def _run_report_phase(job_id: str) -> None:
+    """Convert the agent's ./report.md into a strict-schema findings document.
+
+    WHY THIS MODULE DID NOT HAVE ONE. The five analyzer-shaped modules call
+    `run_report_phase` at the end of their run; misc and forensic never did.
+    The consequence is measurable in the operator's exploit library:
+    `api/routes/exploits.py::_harvest_findings` reads that document to index an
+    entry by `technique_name` / `bug_classes`, and with no document there is
+    nothing to read. pwn indexes 65/67 entries with a technique, crypto 16/17,
+    web 54/66, rev 68/94 — misc 0/2. A future misc job's library hint gets rows
+    with `technique=?` and cannot narrow anything.
+
+    Called from run_job rather than from inside `_claude_summary`, which
+    branches three ways (gpt / grok / claude). Putting it in the branches is
+    the shape that let the output-language setting go missing from all three
+    at once.
+
+    Best-effort by construction: `run_report_phase` swallows its own failures
+    and returns False, and it no-ops with "no source artifacts" when the agent
+    wrote no report.md.
+    """
+    # forensic names its sweep artifacts `summary.json` and
+    # `log_findings.json`, so the default `findings.json` is free here.
+    await run_report_phase(
+        job_id=job_id,
+        work_dir=_job_dir(job_id),
+        log_fn=lambda s: _log(job_id, s),
+        schema_text=REPORT_SCHEMA_FORENSIC,
+    )
+
+
+def run_job(
+    job_id: str,
+    image_rel: str,
+    image_type: str,
+    target_os: str,
+    description: Optional[str],
+    bulk_extractor: bool,
+    skip_claude: bool = False,
+    model_override: Optional[str] = None,
+) -> dict:
+    """RQ entrypoint."""
+    apply_to_env()
+    # 'Docker challenge' opt-in → the agent may `docker build`/`docker run` the
+    # bundled Dockerfile. Sweep stale chal containers from a prior crashed run
+    # of this id, then reap in finally so nothing orphans (hextech_job=<id>).
+    _dc = bool(read_meta(job_id).get("docker_challenge"))
+    if _dc:
+        reap_chal_containers(job_id, lambda s: _log(job_id, s), reason="startup sweep")
+    _write_meta(job_id, status="running", stage="collect")
+    try:
+        _log(job_id, f"Spawning forensic collector (image={image_rel}, type={image_type}, os={target_os}, BE={bulk_extractor})")
+        logs = _spawn_collector(job_id, image_rel, image_type, target_os, bulk_extractor)
+        (_job_dir(job_id) / "collector.log").write_text(logs)
+
+        summary_path = _job_dir(job_id) / "summary.json"
+        collected_summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
+
+        result: dict = {"collected": collected_summary}
+        kind = collected_summary.get("kind", image_type)
+
+        if skip_claude or not has_provider_auth():
+            _log(
+                job_id,
+                f"Skipping agent summary (no {active_provider()} auth, or skip flag).",
+            )
+            result["claude"] = None
+        else:
+            _write_meta(job_id, stage="summarize")
+            claude_result = anyio.run(
+                _claude_summary, job_id, target_os, kind, description,
+                model_override,
+            )
+            result["claude"] = claude_result
+            anyio.run(_run_report_phase, job_id)
+
+        cost = extract_cost(result.get("claude"))
+        # + earlier sessions (stop -> continue reuses the job id)
+        cost += prior_session_cost(job_id)
+        result["cost_usd"] = cost
+        sandbox_started, agent_err = _summary_agent_evidence(result.get("claude"))
+        agent_result = ((result.get("claude") or {}).get("result")
+                        if isinstance(result.get("claude"), dict) else {})
+        agent_err_kind = (
+            classify_stop_reason(agent_result.get("stop_reason"), "agent_error")
+            if agent_err else None
+        )
+        # Collector regex hits are evidence leads, not an acceptance oracle. A
+        # decoy/example flag can legitimately exist in a disk, dump or log. Only
+        # the analyst's provenance-verified FLAG_CANDIDATE marker in report.md
+        # can finish this one-shot module.
+        result["flag_leads"] = sorted({
+            value for value in (collected_summary.get("raw_flag_candidates") or [])
+            if isinstance(value, str) and value
+        })
+        flags = scan_job_for_flags(
+            job_id,
+            trusted_files_only=(
+                ["report.md"]
+                if sandbox_started is False and agent_err is None else []
+            ),
+            sandbox_started=sandbox_started,
+            agent_error=agent_err is not None,
+            trusted_only=True,
+            marker_only=True,
+        )
+        result["flags"] = flags
+        result["agent_error"] = agent_err
+        result["agent_error_kind"] = agent_err_kind
+
+        # Surface log-miner stats so the UI can render counts without
+        # re-reading log_findings.json.
+        log_findings_path = _job_dir(job_id) / "log_findings.json"
+        log_findings_counts = None
+        if log_findings_path.exists():
+            try:
+                lf = json.loads(log_findings_path.read_text())
+                log_findings_counts = lf.get("counts") or {
+                    k: len(v) for k, v in lf.items() if isinstance(v, list)
+                }
+                result["log_findings_counts"] = log_findings_counts
+            except Exception:
+                pass
+
+        # `finished` means "a flag came out", the same as every other module.
+        # This line said `status="finished"` unconditionally, and the history
+        # shows that was an oversight rather than a decision: it predates flags
+        # entirely (initial commit), and when a0a0488 added flag detection to
+        # forensic it passed `flags=flags` here without revisiting the status
+        # beside it. misc — the other one-shot module, same shape — has always
+        # used `finished if flags else no_flag`. The difference is not cosmetic:
+        # web-ui/app.js gates the Save-to-exploit-library button on
+        # `status === "finished"`, so a flagless forensic run offered to save
+        # itself into the library as a solved challenge.
+        if flags:
+            final_status = "finished"
+        elif agent_err:
+            final_status = "failed"
+        else:
+            final_status = no_flag_status(job_id)
+        (_job_dir(job_id) / "result.json").write_text(json.dumps(result, indent=2, default=str))
+        _write_meta(
+            job_id, status=final_status, stage="done", cost_usd=cost,
+            flags=flags,
+            error=agent_err,
+            error_kind=agent_err_kind,
+            log_findings_counts=log_findings_counts,
+            result={"kind": kind, "had_claude": bool(result.get("claude"))},
+        )
+        return result
+    except Exception as e:
+        _log(job_id, f"ERROR: {e}\n{traceback.format_exc()}")
+        _write_meta(job_id, status="failed", error=str(e))
+        raise
+    finally:
+        # Reap any local challenge containers the agent spun up for the
+        # docker-challenge opt-in (label hextech_job=<id>). Best-effort.
+        if _dc:
+            reap_chal_containers(job_id, lambda s: _log(job_id, s), reason="job complete")
+            reap_chal_images(job_id, lambda s: _log(job_id, s), reason="job complete")

@@ -1,0 +1,526 @@
+name: hextech_ctf_tool
+
+# ---------------------------------------------------------------------------
+# WORKER SLOTS — shared definition for worker-1 / worker-2
+#
+# Shape: ONE CONTAINER PER SLOT, each running exactly one RQ worker process,
+# replacing the previous single container that forked WORKER_CONCURRENCY=3
+# children. Every slot is a separate cgroup and a separate PID namespace.
+#
+# WHY (three incidents, in order):
+#
+#  1. Memory. A shared 8g cgroup bounded the SUM of concurrent jobs, so one
+#     heavy job could starve the others, and the cap had to be sized for the
+#     worst case across all three. Per-slot caps make the bound per-job.
+#
+#  2. PID pollution. rq.Worker already forks a work horse per job, but when
+#     that horse exits, everything the agent spawned (wine, Xvfb, bash,
+#     python3) is REPARENTED TO PID 1 and never reaped — 29 zombies out of 42
+#     processes, measured 2026-08-02. Worse, those leftovers are visible to
+#     `ps` from the NEXT job in the same container: job fd844946db78 ran
+#     `ps | awk | kill -9` and killed its own claude CLI. Slots stop a job
+#     from seeing a CONCURRENT job's processes; `init: true` (below) is what
+#     reaps the orphans.
+#
+#  3. Deploy. `docker compose restart worker` killed the in-flight job, so
+#     deploy.sh had to defer the worker restart whenever any job was running.
+#     Separate SERVICES (not `deploy: replicas`) let deploy.sh restart only
+#     the slots that are idle. This is also why replicas would be wrong for a
+#     second reason: the `com.docker.compose.service=worker` label still
+#     matches under replicas, so api/routes/settings.py would silently report
+#     an ARBITRARY slot's memory as "the worker's". Separate services make
+#     that lookup fail loudly instead of quietly lying.
+#
+# SIZING — 4 GiB per slot x 2 slots = 8 GiB, which is exactly the previously
+# validated whole-worker budget:
+#
+#     VM                       80,425 MiB   (.wslconfig memory=80GB, 2026-08-25;
+#                                 it was 16GB, and the physical 96 GB was
+#                                 invisible until that line changed)
+#     - kernel/dockerd/WSL       ~1,500
+#     - api + redis + tunnel       ~400
+#     - challenge containers      2,048 each; these are SIBLING cgroups
+#                                 spawned by the agent (worker/docker_memguard.sh),
+#                                 NOT charged to any slot. One job commonly
+#                                 spawns 2.
+#     = for worker slots        ~78,525 gross
+#
+# A single heavy pwn job (fd844946db78) peaked at 3,222 MiB, so 4,096 clears it
+# with headroom; that is why per-slot stays 4g rather than shrinking to fit more
+# slots. Slots are 12 as of 2026-08-25 (was 2 on the 16 GB VM).
+#
+# ⚠ 12 IS NOT WORST-CASE SAFE, AND THE 70% GATE DOES NOT CATCH IT.
+# The gate in api/routes/settings.py counts SLOTS ONLY: 12 x 4,096 = 49,152 is
+# under its 56,297 ceiling, so it passes. Real demand includes the sibling
+# challenge containers, which it does not count:
+#
+#     12 slots x 4,096          49,152
+#   + 12 jobs x 2 chal x 2,048  49,152
+#   + system                     1,900
+#   =                          100,204 MiB   > 80,425  OVER
+#
+#   ...at ONE challenge container per job:  75,628 MiB   fits
+#
+# So 12 holds only while concurrent 2-container jobs stay below ~9. Nine slots
+# (75,628 worst case) is the number that never overcommits. Overcommitting is
+# exactly the condition that froze WSL on 2026-07-29 and again on 2026-08-01,
+# so if you see swap thrash under load, drop slots or CHAL_CONTAINER_MEM before
+# assuming something else.
+#
+# memswap_limit == mem_limit deliberately: with mem_limit alone Docker allows
+# swap up to 2x the cap, and slow swap thrash is precisely the state that
+# wedged the VM. Equal values buy a fast, clean kill instead.
+#
+# mem_limit is a container-CREATE property, so `deploy.sh`'s restart will NOT
+# change it — only `docker compose up -d worker-1 worker-2` does. Settings →
+# "Worker slot memory" pushes a new value onto the LIVE cgroups of every slot
+# via the Docker API; WORKER_SLOT_MEM in .env sets what a recreate comes back
+# with.
+x-worker-environment: &worker-environment
+  REDIS_URL: redis://redis:6379/0
+  HOST_DATA_DIR: ${HOST_DATA_DIR:-./data}
+  # One job per container — that is what makes a slot a slot. runner.py also
+  # hard-forces this when WORKER_SLOT is set, because the `worker_concurrency`
+  # value in /data/settings.json outranks this env var in settings_io's
+  # precedence (file > env > default) and would otherwise reinstate 3 children
+  # inside every slot.
+  WORKER_CONCURRENCY: "1"
+  # Grok Build binary lives under the mounted ~/.grok tree.
+  PATH: /root/.grok/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  GROK_HOME: /root/.grok
+  # Codex CLI reads and refreshes HexTech's isolated ChatGPT OAuth cache.
+  # Never mount the operator's live ~/.codex here: this container runs as root
+  # and root-owned 0600 rewrites can break a concurrently running host TUI.
+  CODEX_HOME: /root/.codex
+  # Default cap the docker shim injects into an agent-started container
+  # that omits --memory (worker/docker_memguard.sh). Empty or 0 disables.
+  CHAL_CONTAINER_MEM: ${CHAL_CONTAINER_MEM:-2g}
+  # Same shim, same reasoning, for CPU. A challenge container is a sibling of
+  # both the slot and the runner, so neither of their caps bounds it. `0`
+  # disables -- and ONLY `0`: this `:-` substitution replaces an EMPTY value
+  # with the default too, so an empty .env entry arrives at the shim as 8.
+  # Disabling BOTH caps is what makes the shim a complete pass-through;
+  # CHAL_CONTAINER_MEM=0 alone used to be enough and no longer is.
+  CHAL_CONTAINER_CPUS: ${CHAL_CONTAINER_CPUS:-8}
+  # Tell the bundled `claude` CLI it is running in a sandbox so it allows
+  # --dangerously-skip-permissions even though the container runs as root.
+  IS_SANDBOX: "1"
+  # Lift the SDK's per-turn output cap. The model's own ceiling
+  # (Sonnet/Opus ~64k) becomes the effective limit. Override in
+  # .env to throttle if needed.
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS: ${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-999999}
+  # Restore pre-0.2.82 synchronous MCP connect so the in-process `team`
+  # spawn_subagent server is ready before main's turn 1 (SDK 0.2.x defaults
+  # to background connect). memory: sdk_bundled_cli_thinking_400.
+  MCP_CONNECTION_NONBLOCKING: "0"
+  # Trip-wire: at this many tool calls without an artifact, the
+  # orchestrator FALLS BACK to a probe-only skeleton at exploit.py
+  # so the sandbox + postjudge path still runs (job ends as
+  # no_flag/partial instead of failed). Default raised 100 → 150
+  # after jobs d8de/0bb1/13a3 hit budget cleanly but never produced
+  # an artifact even after FINAL_DRAFT push; the higher cap gives
+  # Sonnet-4.6 enough rope to land a real draft while the fallback
+  # path guarantees the run never aborts. A soft eject + scaffold
+  # nudge fire well before the cap; the fallback is the safety net.
+  INVESTIGATION_BUDGET: ${INVESTIGATION_BUDGET:-150}
+  # Recoverable known-dollar breaker. Judge/reviewer calls are part of the
+  # meter too; providers that report no dollars make it a subtotal, not a
+  # complete bound. Set <=0 only as an explicit operator override.
+  COST_CAP_USD: ${COST_CAP_USD:-40}
+  # Fallback limit for Codex turns without an explicit per-job budget. Main
+  # solver adapters pass max(job_timeout, 1800s); Settings can override this
+  # fallback for auxiliary/standalone turns through apply_to_env().
+  CODEX_TURN_TIMEOUT_S: ${CODEX_TURN_TIMEOUT_S:-3600}
+  # Max postjudge-driven auto retries within a single job (in
+  # addition to the first attempt). When auto_run is on and the
+  # sandbox returns a non-success verdict with an actionable
+  # retry_hint, the orchestrator injects that hint as a new user
+  # turn back to the same main SDK session, preserving cache.
+  # Semantics:
+  #   0                    → disabled (legacy fire-and-forget)
+  #   N (positive int)     → cap at exactly N retries
+  #   -1 / inf / unlimited → no cap; loop continues until success,
+  #     empty retry_hint, agent error, BUDGET_ABORT, user Stop, or
+  #     soft/hard timeout
+  # Default: -1 (unlimited). Override via .env if you want a cap.
+  AUTO_RETRY_MAX: ${AUTO_RETRY_MAX:--1}
+
+x-worker-service: &worker-service
+  # Explicit image tag so both slots share ONE build. Without it compose
+  # derives the tag from the service name and would produce two separate
+  # 6.9 GB images (`hextech_ctf_tool-worker-1` and `-worker-2`).
+  image: hextech_ctf_tool-worker
+  build:
+    context: .
+    dockerfile: worker/Dockerfile
+    args:
+      CLAUDE_CLI_VERSION: ${CLAUDE_CLI_VERSION:-latest}
+      CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-latest}
+      GROK_CLI_VERSION: ${GROK_CLI_VERSION:-latest}
+  # PID 1 becomes tini, which reaps orphans. Without it worker.runner is PID 1
+  # and does not wait() on anything but its own multiprocessing children, so
+  # every agent-spawned process reparented to it becomes a permanent zombie
+  # (29 of 42 processes, measured 2026-08-02). This is independent of the slot
+  # split — it is needed either way, and a slot still runs a long job during
+  # which orphans accumulate.
+  init: true
+  mem_limit: ${WORKER_SLOT_MEM:-4g}
+  memswap_limit: ${WORKER_SLOT_MEM:-4g}
+  # RAM was capped per slot from the start; CPU was not, and the asymmetry has
+  # a cost. Measured 2026-08-25 under a 9-job batch: rev job 0a22d7fa7919 fanned
+  # a search out into 36 `evaluate_relation.py` processes and worker-3 took
+  # 2467% CPU on a 32-core host, load average 45.8, while eight other slots
+  # crawled. Nothing was misbehaving -- an agent parallelising its own brute
+  # force is the intended behaviour; there was simply no ceiling on it.
+  #
+  # `cpus` is a CPU-TIME cap, not a thread-count cap: the job may still spawn
+  # 36 processes, they just share 8 cores' worth of time. That is the property
+  # wanted here -- one job must not be able to starve the other eleven.
+  #
+  # 12 x 8 = 96 on 32 cores is deliberate oversubscription. CPU oversubscription
+  # degrades gracefully (the scheduler time-slices); RAM oversubscription is
+  # what wedged this VM twice, which is why that one is budgeted at 70% and this
+  # one is not budgeted at all.
+  #
+  # Like mem_limit, this is a container-CREATE property: `deploy.sh`'s restart
+  # will NOT change it, only `docker compose up -d worker-N` does. To move it on
+  # LIVE slots without a recreate: `docker update --cpus 8 <container>`.
+  cpus: ${WORKER_SLOT_CPUS:-8}
+  env_file: .env
+  volumes:
+    - ./data:/data
+    - ./modules:/app/modules:ro
+    # Mount the worker source so changes to worker/runner.py
+    # (e.g. _sweep_stale_tmp, RQ wiring) take effect on `restart
+    # worker-N` without rebuilding. Same rationale as api's
+    # ./api:/app/api:ro mount.
+    - ./worker:/app/worker:ro
+    - /var/run/docker.sock:/var/run/docker.sock
+    # Mount the host's Claude Code config so the bundled `claude` CLI in the
+    # worker uses your existing claude.ai OAuth token (no API key needed).
+    # Run `claude login` once on the host to populate ~/.claude/.
+    - ${HOST_CLAUDE_HOME:-${HOME}/.claude}:/root/.claude
+    # Optional Grok Build auth (agent_provider=grok). Run `grok login` on the
+    # host; set HOST_GROK_HOME if ~/.grok lives elsewhere. Not required when
+    # using XAI_API_KEY / Settings xai_api_key instead.
+    - ${HOST_GROK_HOME:-${HOME}/.grok}:/root/.grok
+    # Codex ChatGPT OAuth + persisted exec sessions. The default is a dedicated
+    # HexTech runtime home, bootstrapped from ~/.codex/auth.json by start.sh.
+    # It is deliberately NOT the operator's live ~/.codex: Codex runs as root
+    # here and would otherwise replace TUI config/session files as root-owned.
+    - ${HOST_CODEX_HOME:-./data/codex-home}:/root/.codex
+  # Targeted seccomp profile so gdb/dynamic-analysis in the rev `debugger`
+  # subagent can disable ASLR. gdb turns off per-inferior randomization via
+  # personality(ADDR_NO_RANDOMIZE = 0x40000), which the DEFAULT Docker seccomp
+  # profile rejects with EPERM. Concrete cost (job c70160244e53, a rev job):
+  # gdb printed `Error disabling address space randomization: Operation not
+  # permitted` and the stack pointer moved run-to-run, which cost the job a
+  # long detour. The profile is
+  # the Docker default PLUS exactly that one personality() value (see
+  # modules/seccomp_gdb_aslr.json). It REPLACES an earlier seccomp=unconfined
+  # (f829f4b): an adversarial test showed unconfined needlessly re-exposed
+  # unprivileged user namespaces / keyctl / bpf. Path is relative to this
+  # compose file; Compose reads the file and sends its content to the daemon.
+  # (This worker also mounts docker.sock rw, which already dominates any
+  # seccomp consideration here — the profile is defense-in-depth + parity
+  # with the runner, which is the container where isolation actually matters.)
+  security_opt:
+    - seccomp=./modules/seccomp_gdb_aslr.json
+  depends_on:
+    - redis
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      args:
+        CLAUDE_CLI_VERSION: ${CLAUDE_CLI_VERSION:-latest}
+        CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-latest}
+        GROK_CLI_VERSION: ${GROK_CLI_VERSION:-latest}
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      # Grok binary for live monitor narration (and Settings auth status).
+      PATH: /root/.grok/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      GROK_HOME: /root/.grok
+      CODEX_HOME: /root/.codex
+      # Lift the SDK's per-turn output cap. The model still has its
+      # own hard ceiling (Sonnet/Opus ~64k), so the agent picks
+      # whatever its model supports rather than getting truncated
+      # at the SDK default. Override in .env if you want it lower.
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: ${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-999999}
+      # SDK 0.2.x connects MCP servers in the background by default (slow ones
+      # report status=pending until ready). Our in-process `team` spawn_subagent
+      # server must be live before turn 1, so restore the pre-0.2.82 synchronous
+      # connect. memory: sdk_bundled_cli_thinking_400.
+      MCP_CONNECTION_NONBLOCKING: "0"
+    volumes:
+      - ./data:/data
+      - ./modules:/app/modules:ro
+      - ./web-ui:/app/web-ui:ro
+      # Mount the api source so code changes (especially api/routes/*) take
+      # effect on `docker compose restart api` without rebuilding the image.
+      # Worker already mounts ./modules the same way. Concrete incident
+      # 2026-05-17: `_carry_work_ignore` patch in api/routes/retry.py did
+      # NOT propagate because api was image-baked; retries that copied a
+      # rootfs (with dev/console chr device) hung copytree indefinitely.
+      - ./api:/app/api:ro
+      # rw (not ro) so /retry and /resume can copy the previous SDK
+      # session's transcript jsonl into the new job's project-key
+      # directory under ~/.claude/projects/. Without this the SDK
+      # CLI transport searches only the new cwd's project key and
+      # can't find the prior session, so fork_session silently fails.
+      - ${HOST_CLAUDE_HOME:-${HOME}/.claude}:/root/.claude
+      # Grok auth for Settings status + future Grok-driven jobs.
+      - ${HOST_GROK_HOME:-${HOME}/.grok}:/root/.grok
+      # Isolated Codex OAuth/session cache for GPT reviewer/report/monitor.
+      # Sharing the operator's live ~/.codex rw is intentionally forbidden by
+      # the default because this root container can break a concurrent TUI.
+      - ${HOST_CODEX_HOME:-./data/codex-home}:/root/.codex
+      # api needs the docker socket to kill sibling containers spawned by
+      # workers when the user deletes a running job.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # --- worker slots --------------------------------------------------------
+  # Two independent slots. See the x-worker-* anchors at the top of this file
+  # for the full rationale (memory, PID pollution, deploy) and the sizing
+  # arithmetic. To add a slot: copy a block, bump the number, and re-check the
+  # budget — 3 x 4g exceeds what the VM has once challenge containers are
+  # counted.
+  #
+  # NOTE if you do add one: compose would happily CREATE three slots at 4g, but
+  # PUT /api/settings would then REFUSE 4g, because its total gate caps worker
+  # slots at _TOTAL_BUDGET_FRACTION (70%) of VM RAM — 3 x 4g = 12 GiB is over
+  # that on a 16 GB VM. Create and apply would disagree. So a third slot also
+  # needs WORKER_SLOT_MEM lowered (~3.7g here), a bigger VM, or a deliberate
+  # raise of _TOTAL_BUDGET_FRACTION in api/routes/settings.py.
+  #
+  # ONE-TIME MIGRATION off the single `worker` service, in this order:
+  #
+  #   1. rm -f docker-compose.override.yml
+  #      A generated KVM override from before the split names `worker:`, a
+  #      service that no longer exists and has no image or build context.
+  #      Compose then rejects the ENTIRE project with
+  #        service "worker" has neither an image nor a build context specified
+  #      so no compose command works at all until it is gone. start.sh /
+  #      deploy.sh / restart.sh now self-heal this, but only after they get far
+  #      enough to notice. Re-run ./start.sh afterwards to restore KVM with the
+  #      right service names.
+  #
+  #   2. docker rm -f hextech_ctf_tool-worker-1
+  #      The OLD container already holds the name that the new worker-1 service
+  #      pins via container_name, so `up` would collide with it. RUN THIS ONLY
+  #      WHEN IDLE — it kills whatever job that container is serving. deploy.sh
+  #      will not do it for you; restart.sh will, because its contract is
+  #      already a hard reset.
+  #
+  #   3. docker compose up -d worker-1 worker-2
+  #
+  #   4. redis-cli srem rq:workers htct-w0 htct-w1 htct-w2   (optional)
+  #      Slot 1 sweeps these legacy keys on boot; this is only if you want
+  #      restart.sh's worker count correct before that first boot.
+  #
+  # /data/settings.json keeps an inert `worker_mem_limit` entry from the old
+  # key name — lookups iterate settings_io.SCHEMA, so it is never read.
+  #
+  # ROLLBACK is clean and was kept that way on purpose. The old key is still
+  # present in BOTH places it needs to be: `WORKER_MEM_LIMIT=8g` was left in
+  # .env, and `worker_mem_limit: "8g"` was left in /data/settings.json. So:
+  #
+  #   git revert / check out the pre-split commit
+  #   docker rm -f hextech_ctf_tool-worker-1 hextech_ctf_tool-worker-2
+  #   docker compose up -d worker
+  #
+  # comes back to exactly the previous 8g single-container worker, with no
+  # config edits. Nothing in /data/jobs is touched by any of this; the only
+  # new field written there is `worker_slot`, which older code ignores.
+  #
+  # container_name is pinned so `docker logs hextech_ctf_tool-worker-2` and the
+  # log hint in modules/_common.py keep working; without it compose would name
+  # them `...-worker-1-1` / `...-worker-2-1`.
+  worker-1:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-1
+    environment:
+      <<: *worker-environment
+      # Namespaces this slot's RQ worker as `htct-s1-w0` and scopes its
+      # boot-time stale-registration sweep to that prefix. WITHOUT this every
+      # slot would sweep `rq:worker:htct-w*` on boot and delete the OTHER
+      # LIVE slot's registration, which RQ reads as a dead worker.
+      WORKER_SLOT: "1"
+
+  worker-2:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-2
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "2"
+
+  worker-3:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-3
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "3"
+
+  worker-4:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-4
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "4"
+
+  worker-5:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-5
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "5"
+
+  worker-6:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-6
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "6"
+
+  worker-7:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-7
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "7"
+
+  worker-8:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-8
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "8"
+
+  worker-9:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-9
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "9"
+
+  worker-10:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-10
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "10"
+
+  worker-11:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-11
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "11"
+
+  worker-12:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-12
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "12"
+
+  worker-13:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-13
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "13"
+
+  worker-14:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-14
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "14"
+
+  worker-15:
+    <<: *worker-service
+    container_name: hextech_ctf_tool-worker-15
+    environment:
+      <<: *worker-environment
+      WORKER_SLOT: "15"
+
+  # Built but not started by default. Worker spawns transient instances per job.
+  decompiler:
+    image: hextech_ctf_tool-decompiler
+    build:
+      context: .
+      dockerfile: decompiler/Dockerfile
+      args:
+        GHIDRA_VERSION: ${GHIDRA_VERSION:-12.0.4}
+        GHIDRA_BUILD_DATE: ${GHIDRA_BUILD_DATE:-20260303}
+    profiles: ["tools"]
+
+  forensic:
+    image: hextech_ctf_tool-forensic
+    build:
+      context: .
+      dockerfile: forensic/Dockerfile
+    profiles: ["tools"]
+
+  misc:
+    image: hextech_ctf_tool-misc
+    build:
+      context: .
+      dockerfile: misc/Dockerfile
+    profiles: ["tools"]
+
+  runner:
+    image: hextech_ctf_tool-runner
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    profiles: ["tools"]
+
+  # Venue VPN sidecar. Built here, never started here: the API spawns it when
+  # the venue VPN is toggled on, exactly as worker spawns runner above.
+  #
+  # network_mode: host is the point of the whole design. Under WSL that is the
+  # WSL VM's netns -- the one every container already egresses through -- so
+  # wg0 and its routes are inherited by all 15 workers, every runner and every
+  # challenge container without touching one of them. Windows is not involved:
+  # with networkingMode=bridged the WSL VM has its own LAN address and its own
+  # default route, so a Windows WireGuard profile would never carry this
+  # traffic.
+  #
+  # NET_ADMIN creates the interface and its routes; SYS_MODULE loads
+  # wireguard.ko, which the WSL kernel ships but does not have loaded until
+  # the first wg interface is asked for. Both are scoped to the WSL VM.
+  vpn:
+    image: hextech_ctf_tool-vpn
+    build:
+      context: .
+      dockerfile: vpn/Dockerfile
+    network_mode: host
+    cap_add: ["NET_ADMIN", "SYS_MODULE"]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    volumes:
+      - ./data/wireguard:/etc/wireguard:ro
+    profiles: ["tools"]
+
+  sage:
+    image: sagemath/sagemath:latest
+    profiles: ["tools-sage"]
+
+volumes:
+  redis-data:

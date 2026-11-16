@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ogamdo — cross AI view</title>
+  <meta name="description" content="여러 AI의 시선을 교차시켜 푸는 CTF 자동화 플랫폼." />
+  <link rel="stylesheet" href="/static/style.css?v=a3635c0ab" />
+  <!-- Syntax highlighting + Markdown rendering for the file preview modal.
+       Loaded from jsDelivr CDN. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="hbar">
+      <h1>Ogamdo<span class="brand-sub">cross AI view</span></h1>
+      <span id="version-badge" class="version-badge" title="deployed version · last patch — hover for detail">ver …</span>
+      <div id="cost-banner" class="cost-banner" title="Cumulative Claude API spend">
+        <span id="queue-info" title="busy/total workers · queued jobs">0/0 · 0 queued</span>
+        <span id="ratelimit-chip" class="rl-chip" title="Claude account rate-limit status (subscription usage window)" hidden></span>
+        <span id="grok-ratelimit-chip" class="rl-chip" title="Grok SuperGrok weekly usage pool (remaining %)" hidden></span>
+        <span id="codex-ratelimit-chip" class="rl-chip" title="OpenAI Codex ChatGPT OAuth usage pool (remaining %)" hidden></span>
+        <span id="usage-pill" class="usage-pill" title="operator spend vs configured budget (Settings → Spend budget)" hidden></span>
+        <span id="cost-total">$0.00</span>
+        <button id="logout-btn" type="button" class="logout">logout</button>
+      </div>
+    </div>
+    <nav>
+      <button class="tab active" data-tab="jeopardy">🎯 Jeopardy</button>
+      <button class="tab" data-tab="live-fire">🔥 Live-fire</button>
+      <button class="tab" data-tab="player" style="margin-left:auto">🤖 AI Player</button>
+      <button class="tab" data-tab="exploits">📚 Exploits</button>
+      <button class="tab" data-tab="dashboard">📊 Dashboard</button>
+      <button class="tab" data-tab="containers">🐳 Containers</button>
+      <button class="tab" data-tab="settings">⚙ Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- One tab for every jeopardy challenge. What used to be eight tabs was
+         eight ways of asking the operator to classify the bundle before the
+         tool would accept it; the bundle is in the request, so the operator
+         agent classifies it instead. Auto-run, Docker challenge and capture-
+         remote-flag are gone from here for the same reason: each was a
+         judgement about the challenge, and none of them is the operator's to
+         make faster than a reader of the files. -->
+    <section id="panel-jeopardy" class="panel active">
+      <h2>🎯 Jeopardy — 모듈·Docker·remote flag는 Operator Agent가 판단합니다</h2>
+      <form id="jeopardy-form">
+        <label class="job-tag-field">
+          Tag (optional) <small>&mdash; your label for this challenge; shown in the job list</small>
+          <input type="text" name="tag" maxlength="64" placeholder="e.g. DEFCON-quals / day2-hard / babyrop" />
+          <small style="color:var(--fg-muted)">Display only. Never sent to the agent &mdash; it does not affect solving.</small>
+        </label>
+        <label class="output-language-field">
+          Output language
+          <select name="output_language">
+            <option value="">(default — Settings value)</option>
+            <option value="ko">한국어 (Korean)</option>
+            <option value="en">English</option>
+          </select>
+          <small style="color:var(--fg-muted)">Applies to Main, Recon, subagents, Judge, Reviewer, and Report. Code, commands, paths, errors, and flags stay verbatim.</small>
+        </label>
+        <label>
+          Challenge file (zip preferred; binary, image, capture or source) — <em>or skip if remote-only</em>
+          <input type="file" name="file" />
+          <small style="color:var(--fg-muted)">Where this lands — <code>src/</code>, <code>bin/</code>, or the job root — follows the module the Operator Agent picks.</small>
+        </label>
+        <label>
+          Target (required if no file) <small>— URL or host:port; click + to add more</small>
+          <div class="target-list" data-field="target_url" data-placeholder="http://challenge.example.com:8080 or chal.example.com:1337">
+            <div class="target-rows">
+              <div class="target-row">
+                <input type="text" class="target-input" placeholder="http://challenge.example.com:8080 or chal.example.com:1337" />
+                <button type="button" class="target-remove" tabindex="-1" title="Remove this target">×</button>
+              </div>
+            </div>
+            <button type="button" class="target-add" title="Add another target">+ add target</button>
+          </div>
+        </label>
+        <label>
+          Description / hints (optional)
+          <textarea name="description" rows="3" placeholder="e.g. login bypass, flag at /flag.txt — the Operator Agent reads this to pick the module"></textarea>
+        </label>
+        <details class="challenge-secret-ingress">
+          <summary>Challenge credential (kept out of description and logs)</summary>
+          <label>Secret key <select name="challenge_secret_key"><option value="">None</option><option value="CTFD_ACCESS_TOKEN">CTFD_ACCESS_TOKEN</option></select></label>
+          <label>Secret value <input type="password" name="challenge_secret_value" autocomplete="new-password" /></label>
+          <label>Archive passphrase <input type="password" name="archive_passphrase" autocomplete="new-password" placeholder="for a password-protected archive" />
+            <small style="color:var(--fg-muted)">Its own field on purpose: a passphrase must not go through the key/value ingress above — it once overwrote a real CTFd token and then ate the job's own filename as a redaction needle.</small>
+          </label>
+        </details>
+        <label>
+          Flag format (optional)
+          <input type="text" name="flag_format" placeholder="e.g. DH{...} — only this format counts as a flag; blank = auto" />
+          <small style="color:var(--fg-muted)">When set, ONLY flags of this prefix shape land in FLAG FOUND (local-test flags in another format are ignored).</small>
+        </label>
+        <label>
+          Agent model (blank = global Settings value)
+          <select name="model" data-role="model-select"></select>
+        </label>
+        <label>
+          Effort (blank = SDK default; controls reasoning depth)
+          <select name="effort" data-role="effort-select"></select>
+        </label>
+        <label>
+          Job timeout (seconds, blank = global setting)
+          <input type="number" name="job_timeout" min="60" placeholder="6000" />
+        </label>
+        <p class="jeopardy-decided-note">
+          <b>Operator Agent가 결정합니다</b> — 모듈(web · pwn · rev · crypto · web3 · forensic · misc),
+          Docker challenge 여부, remote flag 강제 여부. 판단 근거는 job 로그와 궤적에 남고,
+          모델이 답하지 못하면 결정론적 fallback으로 내려가되 <b>그 사실이 기록됩니다</b>.
+          exploit 자동 실행은 항상 켜져 있습니다.
+        </p>
+        <div class="form-actions">
+          <button type="submit">Analyze</button>
+          <button type="reset" title="Clear file, target, and all other inputs">Reset</button>
+        </div>
+      </form>
+    </section>
+    <section id="panel-live-fire" class="panel">
+      <h2>🔥 Live-fire — Patch and Differential Verification</h2>
+      <p style="color:var(--fg-muted);font-size:0.85rem">
+        Upload one source ZIP. The service is rebuilt from the immutable original and
+        patched candidate, then the benign and fixed-attack probes below are compared.
+        The result is always manual-download only; this tool never deploys it.
+      </p>
+      <form id="live-fire-form">
+        <label class="job-tag-field">
+          Tag (optional) <small>&mdash; your label for this challenge; shown in the job list</small>
+          <input type="text" name="tag" maxlength="64" placeholder="e.g. DEFCON-quals / day2-hard / babyrop" />
+          <small style="color:var(--fg-muted)">Display only. Never sent to the agent &mdash; it does not affect solving.</small>
+        </label>
+        <label class="output-language-field">
+          Output language
+          <select name="output_language">
+            <option value="">(default — Settings value)</option>
+            <option value="ko">한국어 (Korean)</option>
+            <option value="en">English</option>
+          </select>
+          <small style="color:var(--fg-muted)">Applies to Main, Recon, subagents, Judge, Reviewer, and Report. Code, commands, paths, errors, and flags stay verbatim.</small>
+        </label>
+        <label>
+          Service source ZIP
+          <input type="file" name="file" accept=".zip,application/zip" required />
+        </label>
+        <label>
+          Engine
+          <select name="live_fire_version" data-role="live-fire-version">
+            <option value="1">v1 &mdash; one patch agent, attempts until a gate passes</option>
+            <option value="2">v2 &mdash; plan / validator / blueteam &times;N / repo</option>
+          </select>
+          <small style="color:var(--fg-muted)">
+            <b>v2</b> finds vulnerabilities with a plan agent, hands each to its own
+            blueteam, and checks every patch against request/response pairs it
+            captures from your ORIGINAL service before deciding the bundle is safe
+            &mdash; so a fix that changes a normal response is caught before you upload
+            it. It builds that oracle itself, so the verification contract below is
+            <b>ignored</b> in v2. Versions and per-version feedback work the same in both.
+          </small>
+        </label>
+        <label>
+          Verification contract (JSON) <small>&mdash; optional, v1 only</small>
+          <textarea name="verification" rows="14"
+            placeholder='{"mitigation_class":"root-cause-fix","verification_reserve_s":&lt;seconds&gt;,"packaging_reserve_s":&lt;seconds&gt;,"probes":[{"name":"normal request","corpus":"benign","command":["..." ]},{"name":"fixed attack","corpus":"attack","command":["..."],"evidence_tier":"A","attack_expectation":{"exit_code":0}}]}'></textarea>
+          <small style="color:var(--fg-muted)">
+            <b>Leave this blank when a contest has just opened.</b> With no contract the
+            job still patches and still hands you the ZIP &mdash; it simply proves nothing,
+            reports <code>UNVERIFIED</code>, and can never come back ready-to-deploy.
+            Fill it in later, once you know the exploit, and re-run to get a verdict.<br />
+            Commands are argv arrays executed inside isolated original/candidate containers.
+            Include both benign and attack probes; attack evidence tier must be A or B.
+          </small>
+        </label>
+        <label>
+          Known vulnerability count (optional)
+          <input type="number" name="vulnerability_count" min="1" max="50"
+                 placeholder="e.g. 3 — the number the organizer announced" />
+          <small style="color:var(--fg-muted)">
+            The one hint an attack-and-defence round usually gives. With it the task
+            becomes <b>find and fix all N</b> instead of &ldquo;fix the worst one&rdquo;, and the
+            agent is told how many it still owes you. Leave blank if unannounced.
+          </small>
+        </label>
+        <label>
+          Description / operator notes (optional)
+          <textarea name="description" rows="3" placeholder="service context, known vulnerable flow, constraints"></textarea>
+        </label>
+        <label>
+          Main patch model (blank = current provider preset)
+          <select name="model" data-role="model-select"></select>
+        </label>
+        <label>
+          Effort (blank = SDK default)
+          <select name="effort" data-role="effort-select"></select>
+        </label>
+        <label>
+          Job timeout (seconds, blank = global setting; shown on the result)
+          <input type="number" name="job_timeout" min="60" />
+        </label>
+        <div class="form-actions">
+          <button type="submit">Patch + Verify</button>
+          <button type="reset">Reset</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="panel-player" class="panel">
+      <h2>🤖 AI Player — 사이트를 직접 탐색해 job을 만드는 에이전트</h2>
+      <p class="player-intro">
+        CTF 페이지 주소와 계정을 주면 에이전트가 <b>사람처럼</b> 로그인하고 문제를 훑어
+        파일·설명·원격 주소를 모아 job을 만듭니다. 문제명은 그대로 tag가 되고, 토큰이 필요한
+        문제는 사이트에서 토큰을 발급해 넣습니다.
+        <b>비밀번호는 모델에 전달되지 않습니다</b> — 로그인 값 치환은 에이전트 아래 계층에서
+        일어나며, 저장 파일은 0600입니다.
+      </p>
+
+      <form id="player-cred-form" class="player-card">
+        <h3>1. 사이트 계정 저장</h3>
+        <label>사이트 주소
+          <input type="url" name="site_url" required placeholder="https://dreamhack.io/wargame" />
+        </label>
+        <div class="player-row">
+          <label>아이디
+            <input type="text" name="username" required autocomplete="off" />
+          </label>
+          <label>비밀번호
+            <input type="password" name="password" required autocomplete="new-password" />
+          </label>
+        </div>
+        <label>추가 값 (선택)
+          <input type="text" name="extra" placeholder="team=myteam,org=acme" />
+          <small>로그인 폼이 더 요구할 때만. <code>$PLAYER_TEAM</code> 처럼 쓰입니다.</small>
+        </label>
+        <button type="submit">계정 저장</button>
+        <span id="player-cred-msg" class="player-msg"></span>
+      </form>
+
+      <div class="player-card">
+        <h3>2. 저장된 사이트</h3>
+        <table id="player-sites" class="player-table">
+          <thead><tr><th>사이트</th><th>아이디</th><th>생성한 job</th><th>상태</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <form id="player-start-form" class="player-card">
+        <h3>3. 실행</h3>
+        <label>사이트 주소
+          <input type="url" name="site_url" required placeholder="https://dreamhack.io/wargame" />
+        </label>
+        <div class="player-row">
+          <label>보고 언어
+            <select name="language">
+              <option value="ko">한국어</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <label>effort
+            <select name="effort">
+              <option value="">ultra (기본)</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+            </select>
+          </label>
+          <label>제한 시간(초)
+            <input type="number" name="timeout_s" min="120" max="21600" placeholder="3600" />
+          </label>
+        </div>
+        <label>추가 지시 (선택)
+          <textarea name="note" rows="2"
+            placeholder="예: rev/pwn 카테고리만 생성해라. 이미 푼 문제는 건너뛰어라."></textarea>
+        </label>
+        <div class="player-row">
+          <button type="submit">▶ 실행</button>
+          <button type="button" id="player-stop">■ 중지</button>
+        </div>
+        <span id="player-start-msg" class="player-msg"></span>
+      </form>
+
+      <div class="player-card">
+        <h3>4. 진행</h3>
+        <div id="player-summary" class="player-summary">대기 중</div>
+        <table id="player-claims" class="player-table">
+          <thead><tr><th>문제</th><th>모듈</th><th>job</th><th>상태</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <pre id="player-log" class="player-log"></pre>
+      </div>
+    </section>
+
+    <section id="panel-exploits" class="panel">
+      <h2>📚 Exploit Library</h2>
+      <p style="color:var(--fg-muted);font-size:0.85rem">
+        Operator-curated past solutions stored under <code>/data/exploits/</code>.
+        Future jobs can <code>cat /data/exploits/&lt;id&gt;/report.md</code> for
+        insight on similar chals — gated by the <em>Use Exploit Library hints</em>
+        setting. Save entries from any finished job via the 💾 button on
+        its detail panel. Export/import as <code>.tar.gz</code> to move
+        the library between machines.
+      </p>
+      <div class="exp-toolbar">
+        <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
+          module:
+          <select id="exp-filter-module">
+            <option value="">all</option>
+            <option value="pwn">pwn</option>
+            <option value="web">web</option>
+            <option value="crypto">crypto</option>
+            <option value="rev">rev</option>
+            <option value="forensic">forensic</option>
+            <option value="misc">misc</option>
+          </select>
+        </label>
+        <input id="exp-filter-search" type="search" placeholder="search chal / technique / notes…" style="flex:1;min-width:200px" />
+        <button id="exp-refresh" type="button">Refresh</button>
+        <a id="exp-export" href="/api/exploits/export" download style="background:var(--surface-2);border:1px solid var(--line);color:var(--fg-bright);padding:0.45rem 0.9rem;border-radius:6px;text-decoration:none">⬇ Export .tar.gz</a>
+        <label style="display:inline-flex;align-items:center;gap:0.3rem;margin:0;background:var(--surface-2);border:1px solid var(--line);padding:0.35rem 0.7rem;border-radius:6px;cursor:pointer">
+          ⬆ Import .tar.gz
+          <input id="exp-import-file" type="file" accept=".tar.gz,.tgz,application/gzip" hidden />
+        </label>
+        <select id="exp-import-mode" title="behavior when an id already exists">
+          <option value="skip">on conflict: skip</option>
+          <option value="overwrite">on conflict: overwrite</option>
+        </select>
+      </div>
+      <div id="exp-status" style="color:var(--fg-muted);font-size:0.85rem;margin:0.4rem 0"></div>
+      <ul id="exp-list" class="exp-list"></ul>
+    </section>
+
+    <!-- Dashboard. The jobs list used to be a permanent second grid column
+         beside whichever module panel was open; it now lives here. The
+         toolbar ids and #jobs-list are DELIBERATELY unchanged so selectJob /
+         deleteJob / refreshJobs / the flag alarm keep working against the same
+         nodes — this moved the list, it did not rewrite it. -->
+    <section id="panel-dashboard" class="panel">
+      <h2>📊 Dashboard</h2>
+      <div class="dash-mem">
+        <div class="dash-mem-host">
+          <div id="dash-host-ring"></div>
+          <div class="dash-mem-caption">
+            <strong>Host RAM</strong>
+            <div id="dash-host-detail" class="dash-sub">—</div>
+          </div>
+        </div>
+        <div id="dash-container-rings" class="dash-rings">
+          <p class="dash-sub">Loading…</p>
+        </div>
+      </div>
+      <div class="dash-jobs-head">
+        <h3>Jobs</h3>
+        <div class="jobs-toolbar">
+          <button id="refresh-jobs">Refresh</button>
+          <select id="bulk-filter">
+            <option value="">finished + failed + no_flag (safe)</option>
+            <option value="finished">only finished (flag found)</option>
+            <option value="no_flag">only no_flag</option>
+            <option value="failed">only failed</option>
+            <option value="queued">only queued</option>
+            <option value="running">only running</option>
+            <option value="__all__">ALL (cancel running)</option>
+          </select>
+          <button id="bulk-delete" class="bulk-delete-btn">Delete matching</button>
+        </div>
+      </div>
+      <ul id="jobs-list"></ul>
+    </section>
+    <section id="panel-containers" class="panel">
+      <h2>🐳 Containers</h2>
+      <p style="color:var(--fg-muted);font-size:0.85rem">
+        Every container on the daemon, newest-risk-first. <b>Challenge</b> containers are
+        the ones the agent starts by hand for a challenge's own stack — nothing reaps those
+        automatically, so they outlive their job and keep holding a memory reservation.
+        <b>Sandbox</b> are per-job tool containers, <b>core</b> is the stack itself.
+        Memory shows live usage against the container's cgroup cap.
+      </p>
+      <div class="containers-bar">
+        <button id="containers-refresh" class="btn">Refresh</button>
+        <label style="font-size:0.85rem;color:var(--fg-muted)">
+          <input type="checkbox" id="containers-auto" checked /> auto-refresh (15s)
+        </label>
+        <span id="containers-summary" style="font-size:0.85rem;color:var(--fg-muted)"></span>
+      </div>
+      <div id="containers-list"><p style="color:var(--fg-muted)">Loading…</p></div>
+    </section>
+    <section id="panel-settings" class="panel">
+      <h2>⚙ Settings</h2>
+      <p style="color:var(--fg-muted);font-size:0.85rem">
+        Stored in <code>/data/settings.json</code>. Settings override env vars
+        and apply to the next job (no restart). Leave a field blank to revert
+        to its env/default.
+      </p>
+      <div class="settings-layout">
+        <!-- Menu order is the OPERATOR's order and deliberately differs from DOM
+             order: only one section is ever on screen, so DOM order is invisible,
+             and matching it would cost three large block moves for no user-visible
+             gain. The one block that did move is the Auth token field, which
+             joined Callback URL + tunnel in "Access, callbacks & tunnel". -->
+        <nav id="settings-nav" class="settings-nav" role="tablist"
+             aria-orientation="vertical" aria-label="Settings sections">
+          <button type="button" role="tab" id="settings-tab-agent"
+                  data-settings-target="agent" aria-controls="settings-pane-agent"
+                  aria-selected="true" tabindex="0">Agent &amp; routing</button>
+          <button type="button" role="tab" id="settings-tab-language"
+                  data-settings-target="language" aria-controls="settings-pane-language"
+                  aria-selected="false" tabindex="-1">Output language</button>
+          <button type="button" role="tab" id="settings-tab-models"
+                  data-settings-target="models" aria-controls="settings-pane-models"
+                  aria-selected="false" tabindex="-1">Providers &amp; models</button>
+          <button type="button" role="tab" id="settings-tab-presets"
+                  data-settings-target="presets" aria-controls="model-presets"
+                  aria-selected="false" tabindex="-1">Model presets</button>
+          <button type="button" role="tab" id="settings-tab-run"
+                  data-settings-target="run" aria-controls="settings-pane-run"
+                  aria-selected="false" tabindex="-1">Judge &amp; hints</button>
+          <button type="button" role="tab" id="settings-tab-ops"
+                  data-settings-target="ops" aria-controls="settings-pane-ops"
+                  aria-selected="false" tabindex="-1">Jobs, workers &amp; spend</button>
+          <button type="button" role="tab" id="settings-tab-access"
+                  data-settings-target="access" aria-controls="settings-pane-access"
+                  aria-selected="false" tabindex="-1">Access, callbacks &amp; tunnel</button>
+        </nav>
+        <div class="settings-body">
+      <form id="settings-form" novalidate>
+        <div class="settings-pane settings-pane--on" data-settings-pane="agent"
+             id="settings-pane-agent" role="tabpanel" aria-labelledby="settings-tab-agent" tabindex="-1">
+        <fieldset class="provider-fieldset">
+          <legend>Agent provider</legend>
+          <p style="color:var(--fg-muted);font-size:0.85rem;margin:0 0 0.5rem">
+            Which coding agent drives CTF jobs. Applies to the <strong>next</strong> job
+            (no restart). Claude uses the Claude Agent SDK; Grok uses Grok Build via ACP;
+            GPT uses Codex CLI with ChatGPT OAuth by default; direct Responses
+            API billing remains an explicit fallback.
+          </p>
+          <div class="provider-radios" id="agent-provider-radios">
+            <label class="provider-card">
+              <input type="radio" name="agent_provider" value="claude" checked />
+              <span class="provider-card-body">
+                <strong>Claude</strong>
+                <small>Claude Agent SDK · current default</small>
+                <small id="claude-provider-auth" class="provider-auth-badge">checking auth…</small>
+              </span>
+            </label>
+            <label class="provider-card">
+              <input type="radio" name="agent_provider" value="grok" />
+              <span class="provider-card-body">
+                <strong>Grok</strong>
+                <small>Grok Build · ACP / headless</small>
+                <small id="grok-provider-auth" class="provider-auth-badge">checking auth…</small>
+              </span>
+            </label>
+            <label class="provider-card">
+              <input type="radio" name="agent_provider" value="gpt" />
+              <span class="provider-card-body">
+                <strong>Codex / GPT</strong>
+                <small>OpenAI · ChatGPT OAuth agent</small>
+                <small id="gpt-provider-auth" class="provider-auth-badge">checking auth…</small>
+              </span>
+            </label>
+          </div>
+          <small id="provider-status" style="color:var(--fg-muted)"></small>
+
+          <h3 class="provider-block-title" style="margin-top:1rem">Per-role override (hybrid)</h3>
+          <p style="color:var(--fg-muted);font-size:0.85rem;margin:0 0 0.5rem">
+            Run a single role on a different backend from the one above — the point of
+            hybrid operation (e.g. Codex drives the job, Claude judges it). Snapshotted
+            into each job at <strong>create</strong> time, so a change here applies to the
+            <strong>next</strong> job and never re-routes one already running.
+            Grok is not a target: it stays a whole-job backend, and a role pointed at it
+            falls back to the job's own provider rather than half-switching.
+          </p>
+          <label style="max-width:22rem">
+            Topology preset
+            <select name="topology_preset">
+              <option value="custom">custom</option>
+              <option value="codex">all Codex</option>
+              <option value="claude">all Claude</option>
+              <option value="hybrid">hybrid — Codex drives, Claude judges &amp; reviews</option>
+            </select>
+            <small style="color:var(--fg-muted)">
+              Fills the controls below; nothing is stored until you press Save. It sets
+              routing only — the models each side uses come from that provider's own
+              preset, and a role routed to Claude already picks up the Claude preset's
+              entry for it. Shows <b>custom</b> when the current selection matches none
+              of these.
+            </small>
+          </label>
+          <div class="role-provider-grid">
+            <!-- First in the grid because it runs first and decides which of
+                 the others run at all: the operator agent picks the module. -->
+            <label>
+              Operator <small>&mdash; picks module, Docker, remote flag</small>
+              <select name="role_provider_operator">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+              </select>
+            </label>
+            <label>
+              Judge
+              <select name="role_provider_judge">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+              </select>
+            </label>
+            <label>
+              Reviewer
+              <select name="role_provider_reviewer">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+              </select>
+            </label>
+            <label>
+              Report
+              <select name="role_provider_report">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+              </select>
+            </label>
+            <label>
+              Monitor
+              <select name="role_provider_monitor">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+                <option value="local">Local (Ollama)</option>
+              </select>
+            </label>
+            <label>
+              Harvester
+              <select name="role_provider_harvester">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+              </select>
+            </label>
+            <label>
+              Manager
+              <select name="role_provider_manager">
+                <option value="">follow job provider</option>
+                <option value="claude">Claude</option>
+                <option value="gpt">Codex / GPT</option>
+                <option value="grok">Grok</option>
+              </select>
+            </label>
+          </div>
+          <small id="role-provider-status" style="color:var(--fg-muted)"></small>
+        </fieldset>
+        </div>
+
+        <div class="settings-pane" data-settings-pane="language"
+             id="settings-pane-language" role="tabpanel" aria-labelledby="settings-tab-language" tabindex="-1">
+        <fieldset class="provider-fieldset">
+          <legend>Output language</legend>
+          <p style="color:var(--fg-muted);font-size:0.85rem;margin:0 0 0.75rem">
+            Choose the default prose language for newly created jobs. Each job form can
+            override this default before submission.
+          </p>
+          <label style="max-width:22rem">
+            Monitor feed language
+            <select name="agent_output_language">
+              <option value="auto">Both (한국어 + English)</option>
+              <option value="ko">한국어 (Korean)</option>
+              <option value="en">English</option>
+            </select>
+            <small style="color:var(--fg-muted)">
+              Picks the language of the <b>Monitor commentary feed</b> — and nothing
+              else. It used to steer the solving prompts too (Main, Recon, subagents,
+              Judge, Reviewer, Report); that was removed because the agents solve
+              best in English and steering their working language cost accuracy for
+              output the operator does not read anyway. The artefacts that matter —
+              <code>report.md</code>, <code>findings.json</code>, the flag — are
+              technical either way.
+              <br />
+              <b>Both</b> narrates twice per batch and lets the selector above the
+              feed switch instantly; pinning one narrates once and halves what this
+              role spends.
+            </small>
+          </label>
+        </fieldset>
+        </div>
+
+        <div class="settings-pane" data-settings-pane="models"
+             id="settings-pane-models" role="tabpanel" aria-labelledby="settings-tab-models" tabindex="-1">
+        <div id="settings-claude-block" class="provider-settings-block">
+          <h3 class="provider-block-title">Claude credentials &amp; model</h3>
+          <label>
+            Anthropic API Key (optional if Claude Code OAuth is mounted)
+            <input type="password" name="anthropic_api_key" placeholder="sk-ant-... (leave empty to use OAuth)" autocomplete="new-password" />
+            <small id="key-status" style="color:var(--fg-muted)"></small>
+            <small id="oauth-status"></small>
+          </label>
+          <label>
+            Claude model (global default)
+            <select name="claude_model" data-role="model-select-settings"></select>
+            <small style="color:var(--fg-muted)">add a custom model with the field below if it's missing</small>
+          </label>
+          <label>
+            Effort (global default; blank = SDK default)
+            <select name="claude_effort" data-role="effort-select-settings"></select>
+          </label>
+          <label>
+            ...or type a custom model id
+            <input type="text" name="claude_model_custom" placeholder="claude-sonnet-4-20250514 / claude-opus-4-1 / …" />
+          </label>
+        </div>
+
+        <div id="settings-grok-block" class="provider-settings-block">
+          <h3 class="provider-block-title">Grok credentials &amp; model</h3>
+          <label>
+            xAI API Key (optional if <code>grok login</code> auth is mounted)
+            <input type="password" name="xai_api_key" placeholder="xai-... (leave empty to keep / use OAuth file)" autocomplete="new-password" />
+            <small id="xai-key-status" style="color:var(--fg-muted)"></small>
+            <small id="grok-auth-status" style="color:var(--fg-muted)"></small>
+          </label>
+          <label>
+            Grok model (global default)
+            <select name="grok_model" data-role="grok-model-select-settings"></select>
+            <small style="color:var(--fg-muted)">add a custom model with the field below if it's missing</small>
+          </label>
+          <label>
+            Effort (global default; blank = CLI default)
+            <select name="grok_effort" data-role="grok-effort-select-settings"></select>
+          </label>
+          <label>
+            ...or type a custom Grok model id
+            <input type="text" name="grok_model_custom" placeholder="grok-build / grok-4.5 / …" />
+          </label>
+        </div>
+
+        <div id="settings-gpt-block" class="provider-settings-block">
+          <h3 class="provider-block-title">OpenAI Codex / GPT credentials &amp; model</h3>
+          <label>
+            GPT runtime / billing mode
+            <select name="gpt_runtime">
+              <option value="codex">Codex CLI · ChatGPT OAuth (subscription)</option>
+              <option value="responses">Responses API · API key (usage billed)</option>
+            </select>
+            <small id="codex-oauth-status" style="color:var(--fg-muted)"></small>
+          </label>
+          <label>
+            OpenAI API Key (only for the Responses API fallback)
+            <input type="password" name="openai_api_key" placeholder="sk-proj-... (not needed for Codex OAuth)" autocomplete="new-password" />
+            <small id="openai-key-status" style="color:var(--fg-muted)"></small>
+          </label>
+          <label>
+            GPT model (global default)
+            <select name="gpt_model" data-role="gpt-model-select-settings"></select>
+            <small style="color:var(--fg-muted)">Daybreak requires separate OpenAI approval; Codex Spark is Codex CLI-only. Add any missing model with the custom field below.</small>
+          </label>
+          <label>
+            Reasoning effort (global default; Codex CLI or Responses API)
+            <select name="gpt_effort" data-role="gpt-effort-select-settings"></select>
+            <small style="color:var(--fg-muted)">Available efforts vary by model; newer Codex models can support max or ultra.</small>
+          </label>
+          <label>
+            ...or type a custom OpenAI model id
+            <input type="text" name="gpt_model_custom" placeholder="gpt-5.6 / gpt-daybreak-blue-latest / …" />
+          </label>
+        </div>
+
+        <div id="settings-local-block" class="provider-settings-block provider-standalone">
+          <h3 class="provider-block-title">Local runtime (Ollama)</h3>
+          <p style="color:var(--fg-muted);font-size:0.85rem;margin:0 0 0.5rem">
+            A <b>role target</b>, not a job backend. It cannot run Main — there is
+            no session, no tool loop and no resume behind it, and <code>main</code>
+            is not routable in any case. It is offered only for roles that have an
+            adapter: today <b>monitor</b>, whose input is six log lines and whose
+            output is one sentence, so a wrong answer costs nothing and a free one
+            is worth having.
+          </p>
+          <label>
+            Ollama endpoint
+            <input type="text" name="ollama_url" placeholder="비워두면 자동 탐지 — http://172.18.0.1:11434" />
+            <small style="color:var(--fg-muted)">
+              Reached from inside the <b>api container</b>, so <code>127.0.0.1</code>
+              here means the container, not this machine. On WSL the docker bridge
+              gateway is usually <code>172.18.0.1</code>. Ollama must be bound to
+              <code>0.0.0.0</code> (<code>OLLAMA_HOST</code>) or nothing outside it
+              can connect. Leave blank to disable the local target entirely —
+              blank promises nothing, which is different from configured-and-down.
+            </small>
+          </label>
+          <label>
+            Model tag
+            <select name="ollama_model_select" data-action="ollama-model-select">
+              <option value="">(연결 확인 후 선택)</option>
+            </select>
+            <small style="color:var(--fg-muted)">
+              Whatever is pulled on that host. There is no default: an Ollama tag
+              is not a family we can guess, and inventing one would request a model
+              that is not installed.
+            </small>
+          </label>
+          <input type="hidden" name="ollama_model" />
+          <div class="setting-toggle">
+            <button type="button" class="retry-btn" data-action="ollama-discover">엔드포인트 자동 탐지</button>
+            <button type="button" class="retry-btn" data-action="ollama-probe">연결 확인 · 모델 조회</button>
+            <span class="ollama-probe-status" aria-live="polite"
+                  style="color:var(--fg-muted);font-size:0.85rem;margin-left:0.5rem"></span>
+          </div>
+          <small style="color:var(--fg-muted)">
+            VRAM is the real constraint: one 12 GB card holds one ~7.5 GB model.
+            Pinning two roles to two different local tags makes them evict each
+            other, and the first call after an eviction pays the load again.
+          </small>
+        </div>
+
+        </div>
+
+        <div class="settings-pane" data-settings-pane="ops"
+             id="settings-pane-ops" role="tabpanel" aria-labelledby="settings-tab-ops" tabindex="-1">
+        <label>
+          Job retention (days, 0=keep forever)
+          <input type="number" name="job_ttl_days" min="0" placeholder="7" />
+        </label>
+        <label>
+          Job timeout (seconds)
+          <input type="number" name="job_timeout_seconds" min="60" placeholder="6000" />
+        </label>
+        <label>
+          Codex fallback turn timeout (seconds)
+          <input type="number" name="codex_turn_timeout_seconds" min="1" step="1" placeholder="3600" />
+          <small style="color:var(--fg-muted)">
+            Used when a Codex caller has no per-job budget. Main solver turns
+            use the larger of Job timeout and 1800 seconds. A saved fallback
+            applies to auxiliary turns in the next job without recreating workers.
+          </small>
+        </label>
+        <label>
+          Worker concurrency (parallel jobs)
+          <input type="number" name="worker_concurrency" min="1" max="32" placeholder="3" disabled />
+          <small style="color:var(--fg-muted)">
+            <b>Read-only.</b> Parallel jobs is now the number of <code>worker-N</code>
+            services in <code>docker-compose.yml</code> — each slot is its own container
+            running exactly one job. Add or remove a slot there, then
+            <code>docker compose up -d</code>.
+          </small>
+        </label>
+        <label>
+          Worker memory limit (per slot)
+          <input type="text" name="worker_slot_mem" placeholder="4g" />
+          <small style="color:var(--fg-muted)">
+            cgroup cap on EACH worker slot container (<code>4g</code>, <code>4096m</code>, or bytes).
+            Applied to every running slot immediately — no recreate needed.
+            Keeps a runaway job's OOM kill inside its own slot instead of freezing the whole WSL VM.
+            Refused if slots × this value would not fit the VM, or if it would leave a
+            running job no headroom.
+            <span id="worker-mem-live"></span>
+          </small>
+        </label>
+        <div class="setting-toggle">
+          <label class="checkbox">
+            <input type="checkbox" name="prejudge_ship_gate" />
+            <b>Prejudge may block the ship</b>
+            <span class="setting-toggle-state">ON = today's behaviour</span>
+          </label>
+          <small style="color:var(--fg-muted)">
+            May a high-severity prejudge stop the sandbox from ever running? That is a
+            SEPARATE decision from running the judge, and it was one switch until
+            2026-09-03. Job <b>cc38cfa29161</b> is the gate ON: prejudge scored
+            flag_likelihood=0.00, blocked the ship, and the sandbox never ran — the job
+            ended on a prediction about a script nobody had executed. Turning
+            <code>judge_mode</code> to <code>shadow</code> to stop that also silenced
+            <b>postjudge</b>, and job <b>df05d2ce2710</b> is what that costs: the sandbox
+            ran twice, the retry loop had no verdict to iterate on, and the run stopped
+            24.7&nbsp;min into a 58&nbsp;min budget.
+            <br />
+            <b>OFF</b> keeps both judges live and drops only the block. Prejudge still
+            runs and still logs every issue it raised, and a bypassed block is recorded as
+            <code>prejudge WOULD have blocked ship</code> — a near miss you can see.
+            Default <b>ON</b>, so an upgrade changes nothing for a deployment that relies
+            on it.
+          </small>
+        </div>
+        <div class="setting-toggle">
+          <label class="checkbox">
+            <input type="checkbox" name="flag_harvester" />
+            <b>Flag harvester</b>
+            <span class="setting-toggle-state">ON = today's behaviour</span>
+          </label>
+          <small style="color:var(--fg-muted)">
+            A model re-reads every running job's appended output and writes anything it
+            judges to be a real flag into <code>&lt;job&gt;/flag_grain.txt</code>. Pick its
+            model in <b>Model presets → harvester</b>.
+            <br />
+            It exists because <code>FLAG_RE</code> carries a fixed alphabet of ~20 known
+            prefixes. Job <b>29f1d8f14268</b> captured <code>REVERSSEUM{…}</code> and
+            <b>fed8eedff33d</b> captured <code>pokactf2024{…}</code> — neither prefix is on
+            that list, and both were recovered only because the solver happened to print
+            the <code>FLAG_CANDIDATE:</code> marker. The harvester accepts any braced
+            string and asks a model whether it is real.
+            <br />
+            <b>Advisory only.</b> It appends to one text file; it cannot write
+            <code>meta.flags</code>, set a status, or end a job. That restriction is the
+            safety argument: <code>run.log</code> was removed as a flag source in
+            2026-07 after three jobs false-finished on fakes scraped from a web-search
+            summary and from <code>exploit.py</code>'s own <code>print()</code> source.
+            A component that can only append to a file cannot repeat that.
+          </small>
+        </div>
+        <div class="setting-toggle">
+          <label class="checkbox">
+            <input type="checkbox" name="manager_agent" />
+            <b>Manager agent</b>
+            <span class="setting-toggle-state">OFF = no assessment on the job tiles</span>
+          </label>
+          <small style="color:var(--fg-muted)">
+            Reads each running job's own signals and answers the two questions a row
+            could not: <b>how likely is this to end in a flag</b> (a percentage) and
+            <b>how far from a working exploit is it</b> (a position on a fixed
+            seven-stage ladder, drawn as the bar). Both appear on the job tiles.
+            <br />
+            It has its own role above, so you can point it at a cheap model
+            independently of the stack a job runs on — this is a judgement
+            <em>about</em> the work, not part of doing it.
+            <br />
+            Default OFF because it spends tokens on every running job. It re-assesses
+            only when a job's log has actually grown.
+          </small>
+        </div>
+        <label>
+          Manager interval (seconds)
+          <input type="number" name="manager_interval_s" min="30" max="3600" placeholder="90" />
+          <small style="color:var(--fg-muted)">
+            Floor between assessments for one job. A job's odds do not move
+            meaningfully inside a minute, and a per-job model call every few seconds
+            is how a dashboard widget ends up costing more than the work it describes.
+          </small>
+        </label>
+        <div class="setting-toggle">
+          <label class="checkbox">
+            <input type="checkbox" name="monitor_agent" />
+            <b>Monitor agent (retired)</b>
+            <span class="setting-toggle-state">OFF = today's behaviour</span>
+          </label>
+          <small style="color:var(--fg-muted)">
+            The narration agent that watches <code>run.log</code> and publishes a
+            per-job commentary feed. It is <b>retired, not removed</b>: every line of
+            <code>modules/_monitor.py</code> is intact and this switch brings it back
+            exactly as it was.
+            <br />
+            <b>This switch is now the only gate.</b> It used to share the decision with
+            five others that refused GPT jobs outright — the supervisor, the monitor
+            route, three places in the live stream, and this very Settings page, which
+            hid the <code>monitor</code> role from GPT presets so you could not even
+            give it a model. The GPT narrator they were bypassing was complete the
+            whole time. Turning this on now narrates <b>whichever provider and model
+            you selected</b>; the Timeline still renders beside it, because "what
+            happened" and "what it means" are different questions.
+            <br />
+            Default <b>OFF</b>. This inverts the convention of the toggles above, which
+            default ON to preserve historical behaviour: a feature being retired should
+            not come back because a settings read failed. The
+            <code>MONITOR_ENABLED=0</code> env kill switch still wins independently.
+          </small>
+        </div>
+        <div class="setting-toggle">
+          <label class="checkbox">
+            <input type="checkbox" name="dynamic_worker_mem" />
+            <b>Dynamic per-slot memory</b>
+            <span class="setting-toggle-state">OFF = today's behaviour</span>
+          </label>
+          <small style="color:var(--fg-muted)">
+            OFF, the default: the cap above is the only authority and nothing touches a
+            slot's cgroup while a job runs. ON lets a job raise its own slot for the run
+            and hand it back afterwards. Usage sampling runs either way.
+            <br />
+            <b>rev</b> and <b>crypto</b> start at <b>base&nbsp;×&nbsp;2</b>; every other
+            module starts at the base. A real cgroup OOM raises the slot 1.5×, at most
+            twice, and never past <b>base&nbsp;×&nbsp;4</b>.
+            <br />
+            The expansion is a MULTIPLE of your per-slot setting, so lowering that
+            lowers the expansion with it — at a 2g base, rev gets 4&nbsp;GiB and the OOM
+            ceiling is 8&nbsp;GiB. <b>web</b> was removed from the expansion list on
+            2026-08-25 and now starts at the base.
+            <br />
+            The safety budget is 70% of the VM, and it counts SLOT caps only — the
+            runner and the challenge containers a job spawns are siblings charged to
+            the VM, not to the slot, so this gate will not warn you about them.
+          </small>
+        </div>
+        <label>
+          Spend budget (USD, 0=off)
+          <input type="number" name="budget_usd" min="0" step="1" placeholder="0" />
+          <small style="color:var(--fg-muted)">operator budget for the top-bar <code>used / budget</code> pill — cumulative spend vs this ceiling. This is YOUR budget, not the Claude account limit (a true remaining-quota number isn't retrievable on OAuth).</small>
+        </label>
+        </div>
+
+        <div class="settings-pane" data-settings-pane="access"
+             id="settings-pane-access" role="tabpanel" aria-labelledby="settings-tab-access" tabindex="-1">
+        <label>
+          Auth token (UI/API access)
+          <input type="password" name="auth_token" placeholder="leave empty to disable auth" autocomplete="new-password" />
+          <small id="auth-status" style="color:var(--fg-muted)"></small>
+        </label>
+        <label>
+          Callback URL (for XSS / SSRF / blind RCE)
+          <input type="url" name="callback_url" placeholder="https://your-listener.example.com/x" />
+          <small style="color:var(--fg-muted)">forwarded to exploits as <code>CALLBACK_URL</code> env. Run <code>./tunnel.sh</code> (cloudflared) to auto-fill this with a tunnel that has no ngrok interstitial — or use requestbin / your own VPS for remote bots that can't reach private IPs.</small>
+        </label>
+
+        <h3 class="provider-block-title" style="margin-top:1rem">Venue VPN <span style="color:var(--fg-muted);font-weight:normal;font-size:0.85rem">— reach CTF servers that only exist on the contest LAN</span></h3>
+        <div class="setting-toggle">
+          <label class="checkbox">
+            <input type="checkbox" name="vpn_enabled" />
+            <b>Venue VPN</b>
+            <span class="setting-toggle-state">OFF = home line only</span>
+          </label>
+          <small style="color:var(--fg-muted)">
+            The laptop at the venue dials in as a WireGuard peer and this box routes the
+            venue's subnets to it. The tunnel terminates in the <strong>WSL VM</strong>, not
+            Windows: with <code>networkingMode=bridged</code> the VM is its own LAN host with
+            its own default route, so a Windows WireGuard profile carries Windows' traffic and
+            none of Ogamdo's. Every worker, runner and challenge container inherits the route
+            through the docker bridge — nothing per-container to configure.
+          </small>
+        </div>
+        <label>
+          Scope
+          <select name="vpn_scope">
+            <option value="venue">venue subnets only (recommended)</option>
+            <option value="all">all container traffic</option>
+          </select>
+          <small style="color:var(--fg-muted)">
+            <code>venue</code> routes only the subnets listed below and leaves model APIs and
+            package mirrors on the home line. <code>all</code> sends every <em>container's</em>
+            egress through the venue; the WSL host keeps its LAN default route, so the
+            handshake and Ogamdo's own control plane are never routed into the tunnel they
+            depend on. Pick <code>venue</code> unless you know the venue does not firewall
+            outbound API calls — under <code>all</code>, a venue that blocks them kills every job.
+          </small>
+        </label>
+        <label>
+          Venue subnets
+          <input type="text" name="vpn_venue_subnets" placeholder="10.20.0.0/16, 192.168.4.0/24" />
+          <small style="color:var(--fg-muted)">comma-separated, what the laptop can reach at the venue. A <code>/0</code> is refused here — that is what <code>Scope: all</code> is for.</small>
+        </label>
+        <label>
+          Laptop public key
+          <input type="text" name="vpn_peer_public_key" placeholder="leave empty to use the generated keypair" />
+          <small style="color:var(--fg-muted)">
+            Optional. Empty means Ogamdo uses the keypair it generated — the same one whose
+            private half is in <em>Show laptop config</em>, so there is nothing to copy back.
+            Fill it in only if you generated the key <em>on the laptop</em> instead; a value
+            here that does not match the handed-out config means the two ends can never
+            handshake, and WireGuard reports that as silence.
+          </small>
+        </label>
+        <label>
+          This box's public address
+          <input type="text" name="vpn_endpoint_host" placeholder="203.0.113.10 or home.example.com" />
+          <small style="color:var(--fg-muted)">used only to render the laptop's config. Forward UDP <code>listen port</code> on the router to the <strong>WSL VM's</strong> LAN address, not Windows'.</small>
+        </label>
+        <div class="preset-row">
+          <label style="flex:1">
+            Listen port — internal (UDP)
+            <input type="number" name="vpn_listen_port" min="1" max="65535" placeholder="51820" />
+            <small style="color:var(--fg-muted)">what WireGuard listens on inside WSL; the router's <em>internal</em> port.</small>
+          </label>
+          <label style="flex:1">
+            External port
+            <input type="number" name="vpn_external_port" min="0" max="65535" placeholder="0 = same" />
+            <small style="color:var(--fg-muted)">only if the router maps a <em>different</em> external port. This is the one the laptop dials — get it wrong and the desktop still looks perfectly healthy while the handshake never arrives.</small>
+          </label>
+          <label style="flex:1">
+            Tunnel address (this box)
+            <input type="text" name="vpn_address" placeholder="10.99.0.1/24" />
+          </label>
+          <label style="flex:1">
+            Tunnel address (laptop)
+            <input type="text" name="vpn_peer_address" placeholder="10.99.0.2/32" />
+          </label>
+        </div>
+        </div>
+
+        <div class="settings-pane" data-settings-pane="run"
+             id="settings-pane-run" role="tabpanel" aria-labelledby="settings-tab-run" tabindex="-1">
+        <label>
+          Judge mode (pre-flight script review · post-mortem verdict)
+          <select name="judge_mode">
+            <option value="off">off — plain runner, no judge at all</option>
+            <option value="shadow">shadow — record what the judge WOULD say, gate nothing</option>
+            <option value="enforce">enforce — every module; a job whose module cannot be determined stays shadow</option>
+          </select>
+          <small style="color:var(--fg-muted)">
+            <b>enforce covers every module</b> since 2026-08-29. It was limited to pwn and
+            web before that, because the stage-7 table found no meaningful negative class for
+            rev (13/1) or crypto (6/0) — a judge that always answers "success" scores full marks
+            against those, which is a measurement nobody took rather than a result worth gating
+            on. Re-measured over the jobs whose sandbox actually ran, rev is now 17 capture / 12
+            negative and crypto 1 / 6, so that objection is answered by the corpus.
+            <b>web3</b> (2 runs, no capture yet) is in scope without that evidence, and
+            <b>misc</b> / <b>forensic</b> have no sandbox phase at all, so enforcing them
+            changes nothing either way.<br />
+            A job whose module cannot be determined still runs as <b>shadow</b>, never enforce —
+            that is not part of the scope, it is the guard against not knowing.<br />
+            <b>enforce</b> adds ~1 short judge turn per stage and can abort a run before the
+            container starts. <b>shadow</b> costs nothing during the run — it appends the judge's
+            INPUTS to <code>judge_shadow.jsonl</code> and the verdicts are produced afterwards,
+            out of band; the run itself behaves exactly as with <b>off</b>, down to a
+            byte-identical <code>run.log</code>.<br />
+            <b>The stall watchdog (supervise) does not run in any mode.</b> It is the one judge
+            stage nothing has been able to evaluate — its evidence is a live container's stalled
+            output, which no after-the-fact replay can reconstruct — and it is the only one that
+            kills a container. It is excluded from this release and sits behind its own flag,
+            off by default. Zero supervise rows therefore means it never fired, not that nothing
+            stalled. A stalled container is still killed by the hard timeout, as always.
+          </small>
+        </label>
+
+        <label class="checkbox">
+          <input type="checkbox" name="enable_exploit_library_hint" />
+          Use Exploit Library hints (prepend same-module saved exploits to agent's user prompt)
+          <small style="color:var(--fg-muted)">when ON, the agent sees a short list of operator-saved exploits at the top of its first prompt and can <code>cat /data/exploits/&lt;id&gt;/report.md</code> for insight. OFF by default — turn on once the library has trusted entries.</small>
+        </label>
+        </div>
+
+        <div id="settings-footer" class="settings-footer">
+          <button type="submit">Save</button>
+          <button type="button" id="settings-reload" style="background:var(--surface-2);border:1px solid var(--line);color:var(--fg-bright);padding:0.5rem 1rem;border-radius:6px;cursor:pointer">Reload</button>
+        </div>
+      </form>
+
+      <div id="model-presets" class="preset-block settings-pane" data-settings-pane="presets"
+           role="tabpanel" aria-labelledby="settings-tab-presets" tabindex="-1">
+        <h3 style="margin-bottom:0.25rem">Provider model presets</h3>
+        <p style="color:var(--fg-muted);font-size:0.85rem;margin-top:0">
+          Claude, Grok, and GPT each keep their own named presets and active
+          selection. Switching the job provider therefore switches to that
+          provider's active preset automatically. Presets pin per-agent models +
+          reasoning effort. Configurable: <code>main</code> (the CTF agent) and
+          its <code>effort</code>, plus <code>judge</code> (prejudge / postjudge
+          + judge subagent), <code>reviewer</code> (the /retry hint
+          reviewer, separately overridable), <code>recon</code>, <code>debugger</code>,
+          <code>triage</code>, <code>report</code>, and <code>monitor</code>
+          (Claude/Grok only; GPT uses its token-free Timeline). A blank slot =
+          <em>inherit</em>: <code>main</code> + <code>effort</code> fall back to the
+          per-job picker / global Settings values above; judge / report follow main;
+          <code>reviewer</code> follows the judge slot (then main); recon / debugger /
+          triage follow main (cache-aligned); Claude/Grok monitor keeps its cheap default. An
+          explicit per-job model or effort still wins over the preset.
+          <strong style="color:var(--yellow)">⚠ recon / debugger / triage</strong> normally
+          share the main model for <em>cache-prefix alignment</em> — pinning them to a
+          different model works but sacrifices that cache locality (higher cost /
+          latency). Stored in <code>/data/model_presets.json</code>; applies to the
+          next job.
+        </p>
+        <div class="preset-provider-tabs" id="preset-provider-tabs" aria-label="Preset provider">
+          <button type="button" data-preset-provider="claude">Claude</button>
+          <button type="button" data-preset-provider="grok">Grok</button>
+          <button type="button" data-preset-provider="gpt">GPT</button>
+          <button type="button" data-preset-provider="local">Local</button>
+        </div>
+        <p id="preset-catalog-note" style="color:var(--fg-muted);font-size:0.78rem;margin:0.35rem 0 0" hidden></p>
+        <div class="preset-row">
+          <label style="flex:1;margin:0">
+            Active preset for <strong id="preset-provider-label">Claude</strong>
+            <select id="preset-active"></select>
+          </label>
+          <div class="preset-btns">
+            <button type="button" id="preset-new">+ New</button>
+            <button type="button" id="preset-rename">Rename</button>
+            <button type="button" id="preset-delete">Delete</button>
+          </div>
+        </div>
+        <div id="preset-roles"></div>
+        <div class="preset-row" style="align-items:center">
+          <button type="button" id="preset-save">Save presets</button>
+          <small id="preset-status" style="color:var(--fg-muted)"></small>
+        </div>
+      </div>
+
+      <div id="tunnel-block" class="preset-block settings-pane" data-settings-pane="access">
+        <h3 style="margin-bottom:0.25rem">Cloudflared tunnel <span style="color:var(--fg-muted);font-weight:normal;font-size:0.85rem">— OOB collector</span></h3>
+        <p style="color:var(--fg-muted);font-size:0.85rem;margin-top:0">
+          Opens a public <code>*.trycloudflare.com</code> quick-tunnel to the api and
+          auto-fills the <strong>Callback URL</strong> in this same section, so remote bots (XSS / SSRF /
+          blind RCE) can beacon back to the built-in collector. Runs as a sibling
+          container, so it survives api redeploys and keeps a stable URL. A dead tunnel
+          stays dead — re-roll manually (Cloudflare rate-limits fresh tunnels).
+        </p>
+        <div id="tunnel-warning" class="tunnel-warning" hidden>
+          ⚠ <strong>No auth token set.</strong> This tunnel exposes the ENTIRE api to the
+          public internet — including <code>/api/terminal</code> (an interactive shell / RCE)
+          and settings-write. Anyone who learns the URL gets shell on this host. Set an
+          <em>Auth token</em> above to lock everything except the public collector.
+        </div>
+        <div class="preset-row" style="align-items:center">
+          <span id="tunnel-chip" class="rl-chip">checking…</span>
+          <a id="tunnel-url" href="#" target="_blank" rel="noopener"
+             style="color:var(--blue);font-size:0.8rem;word-break:break-all" hidden></a>
+        </div>
+        <div class="preset-row">
+          <button type="button" id="tunnel-activate">Activate tunnel</button>
+          <button type="button" id="tunnel-stop">Stop</button>
+          <button type="button" id="tunnel-refresh">Refresh</button>
+          <small id="tunnel-status-text" style="color:var(--fg-muted);align-self:center"></small>
+        </div>
+      </div>
+
+      <div id="vpn-block" class="preset-block settings-pane" data-settings-pane="access">
+        <h3 style="margin-bottom:0.25rem">Venue VPN status</h3>
+        <p style="color:var(--fg-muted);font-size:0.85rem;margin-top:0">
+          Container, interface and peer are reported <em>separately</em>, because they come
+          apart in the way that matters: a sidecar that exited on a bad config shows the last
+          lines of its log here while the interface stays down.
+        </p>
+        <div class="preset-row" style="align-items:center">
+          <span id="vpn-chip" class="rl-chip">checking…</span>
+          <small id="vpn-status-text" style="color:var(--fg-muted);align-self:center"></small>
+        </div>
+        <div class="preset-row">
+          <button type="button" id="vpn-refresh">Refresh</button>
+          <button type="button" id="vpn-peer-config">Show laptop config</button>
+        </div>
+        <pre id="vpn-peer-out" style="display:none;white-space:pre-wrap;word-break:break-all;background:var(--bg-inset,#0002);padding:0.6rem;border-radius:4px;font-size:0.8rem"></pre>
+        <p id="vpn-peer-note" style="color:var(--fg-muted);font-size:0.8rem" hidden>
+          Paste into the laptop's WireGuard client. The laptop must also <strong>forward and
+          masquerade</strong> from <code>wg0</code> into the venue LAN, or the advertised subnets
+          will never answer — see <code>docs/venue-vpn.md</code>.
+        </p>
+      </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Job detail modal: clicking any job in the list opens this. The
+       inner #job-detail is populated by renderJob() — same code path as
+       before, only the container moved into the modal. -->
+  <div id="job-modal" class="job-modal" hidden>
+    <div class="job-modal-backdrop"></div>
+    <div class="job-modal-window" role="dialog" aria-modal="true">
+      <header class="job-modal-header">
+        <span class="job-modal-title">Job</span>
+        <div class="job-modal-actions">
+          <button type="button" class="job-modal-close" aria-label="Close">✕</button>
+        </div>
+      </header>
+      <div id="job-detail" class="job-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- File preview modal (populated by openFileModal() in app.js) -->
+  <div id="file-modal" class="file-modal" hidden>
+    <div class="file-modal-backdrop"></div>
+    <div class="file-modal-window" role="dialog" aria-modal="true">
+      <header class="file-modal-header">
+        <span class="file-modal-name"></span>
+        <span class="file-modal-meta"></span>
+        <div class="file-modal-actions">
+          <a class="file-modal-raw" target="_blank" rel="noopener">Open raw</a>
+          <button type="button" class="file-modal-copy">Copy</button>
+          <button type="button" class="file-modal-close" aria-label="Close">✕</button>
+        </div>
+      </header>
+      <div class="file-modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=a3635c0ab"></script>
+</body>
+</html>

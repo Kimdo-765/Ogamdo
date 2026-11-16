@@ -1,0 +1,9 @@
+{
+  "id": "pwn-example",
+  "module": "pwn",
+  "chal_name": "Fictional reference lifetime case",
+  "technique_name": "reference-lifetime-analysis",
+  "bug_classes": ["uaf"],
+  "saved_at": "2026-01-01T00:00:00Z",
+  "flags": []
+}

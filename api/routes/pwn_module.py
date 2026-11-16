@@ -1,0 +1,95 @@
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from api.queue import get_queue, hard_timeout_for, normalize_effort, resolve_timeout
+from api.storage import job_dir, new_job_id, parse_targets, prepare_job_description, write_job_meta, reject_job, stamp_job_tag
+from modules.agent_provider import enrich_job_meta
+
+router = APIRouter()
+
+
+@router.post("/analyze")
+async def analyze_pwn(
+    file: Optional[UploadFile] = File(None),
+    target: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    challenge_secret_key: Optional[str] = Form(None),
+    challenge_secret_value: Optional[str] = Form(None),
+    auto_run: bool = Form(False),
+    job_timeout: Optional[int] = Form(None),
+    model: Optional[str] = Form(None),
+    effort: Optional[str] = Form(None),
+    output_language: Optional[str] = Form(None),
+    tag: Optional[str] = Form(None),
+    flag_format: Optional[str] = Form(None),
+    docker_challenge: bool = Form(False),
+):
+    targets = parse_targets(target)
+    target = targets[0] if targets else None
+    has_file = bool(file and file.filename)
+    if not has_file and not target:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a binary or a remote target (host:port).",
+        )
+
+    job_id = new_job_id()
+    bin_dir = job_dir(job_id) / "bin"
+    bin_dir.mkdir(exist_ok=True)
+
+    binary_name = None
+    if has_file:
+        content = await file.read()
+        if not content:
+            reject_job(job_id, 400, "empty file")
+        binary_name = Path(file.filename).name
+        target_path = bin_dir / binary_name
+        target_path.write_bytes(content)
+        target_path.chmod(0o755)
+    description = prepare_job_description(
+        job_id, description, challenge_secret_key, challenge_secret_value
+    )
+
+    timeout = resolve_timeout(job_timeout)
+    chosen_model = (model or "").strip() or None
+    chosen_effort = normalize_effort(effort)
+    meta = {
+        "id": job_id,
+        "module": "pwn",
+        "status": "queued",
+        "filename": binary_name,
+        "target_url": target,
+        "target_urls": targets if len(targets) >= 2 else None,
+        "description": description,
+        "auto_run": auto_run,
+        "job_timeout": timeout,
+        "model": chosen_model,
+        "effort": chosen_effort,
+        "flag_format": (flag_format or "").strip() or None,
+        # 🐳 opt-in. The form posted this before the route accepted it, and
+        # FastAPI drops form fields a signature does not declare — so the box
+        # set nothing, `docker_challenge_block` stayed a no-op, and the feature
+        # was decorative. Job 6b4a07a32cee is where that showed up.
+        "docker_challenge": docker_challenge,
+        "remote_only": not has_file,
+    }
+    stamp_job_tag(meta, tag)
+    enrich_job_meta(meta, output_language=output_language)
+    write_job_meta(job_id, meta)
+
+    q = get_queue()
+    q.enqueue(
+        "modules.pwn.analyzer.run_job",
+        job_id,
+        binary_name,
+        target,
+        description,
+        auto_run,
+        chosen_model,
+        job_id=job_id,
+        job_timeout=hard_timeout_for(timeout),
+    )
+
+    return {"job_id": job_id, "status": "queued", "job_timeout": timeout, "model": chosen_model}

@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Regression tests for the reviewer hint sanitizer.
+
+Run: python3 scripts/test_hint_sanitizer.py
+
+The sanitizer rewrites reviewer output before it reaches the next agent. That
+makes it the one place where a bad regex does not merely garble text — it can
+INVERT a finding. The rule that prompted this file replaced
+`\\b\\S+ is firewalled\\b` with a phrase beginning "the target is …", so it ate
+the subject and turned "REFUTED: outbound DNS is firewalled" into an assertion
+that the collector is reachable. The reviewer's whole value is its REFUTED
+list; a sanitizer that inverts refutations is worse than no sanitizer.
+
+These load the real _HINT_REPLACEMENTS out of modules/reviewer.py by source, so
+FastAPI is not needed and the table under test is the shipped one.
+"""
+
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SRC = (ROOT / "modules/reviewer.py").read_text()
+
+checks = 0
+fails = 0
+
+
+def chk(label, cond, got=None):
+    global checks, fails
+    checks += 1
+    if cond:
+        print("PASS  %s" % label)
+    else:
+        fails += 1
+        print("FAIL  %s\n        got=%r" % (label, got))
+
+
+# --- load the real table ----------------------------------------------------
+# Execute only the _HINT_REPLACEMENTS assignment, with `_re` bound to `re`.
+# The ASSIGNMENT, not the first mention — the name appears in a docstring
+# 2000 lines earlier and slicing from there yields unbalanced source.
+start = SRC.index("_HINT_REPLACEMENTS: tuple")
+depth = 0
+start = SRC.index("= (", start) + 2
+for i in range(start, len(SRC)):
+    if SRC[i] == "(":
+        depth += 1
+    elif SRC[i] == ")":
+        depth -= 1
+        if depth == 0:
+            end = i + 1
+            break
+ns: dict = {"_re": re}
+exec("_HINT_REPLACEMENTS = " + SRC[start:end], ns)          # noqa: S102 - the table is source we ship
+TABLE = ns["_HINT_REPLACEMENTS"]
+chk("loaded the shipped replacement table", len(TABLE) > 5, len(TABLE))
+
+
+def sanitize(text):
+    for pat, repl in TABLE:
+        text = pat.sub(repl, text)
+    return text
+
+
+# --- the subject of a refutation must survive -------------------------------
+SUBJECTS = [
+    ("REFUTED: outbound DNS is firewalled (no resolution observed)", "outbound DNS"),
+    ("REFUTED: egress to port 443 is firewalled", "port 443"),
+    ("the container is firewalled", "container"),
+    ("webhook.site is firewalled", "webhook.site"),
+    ("the bot is firewalled from the internet", "bot"),
+]
+for text, subject in SUBJECTS:
+    out = sanitize(text)
+    chk("subject %r survives sanitization" % subject, subject.lower() in out.lower(), out)
+
+# The specific inversion: a refutation must not come out asserting reachability
+# ABOUT SOMETHING ELSE. The subject staying put is what prevents that.
+out = sanitize("REFUTED: outbound DNS is firewalled (no resolution observed)")
+chk("a refutation is not turned into a claim about 'the target'",
+    not out.startswith("REFUTED: outbound the target"), out)
+chk("...and the parenthetical evidence is untouched",
+    "(no resolution observed)" in out, out)
+
+# --- no rule may double an article or leave a dangling fragment --------------
+for text, _ in SUBJECTS:
+    out = sanitize(text)
+    chk("no doubled article in %r" % text[:34],
+        not re.search(r"\bthe the\b|\ba a\b", out, re.I), out)
+
+# --- the sanitizer must never empty a hint ----------------------------------
+# Every replacement substitutes a non-empty string, so a non-empty hint stays
+# non-empty. If that ever changes, an "empty hint" would read as "the reviewer
+# had nothing to say" when in fact the sanitizer ate it.
+for text, _ in SUBJECTS:
+    chk("non-empty in, non-empty out: %r" % text[:34], bool(sanitize(text).strip()))
+
+# --- the rules it is actually there for still fire ---------------------------
+FIRES = [
+    ("we should exfiltrate the flag", "exfiltrate"),
+    ("bypass the firewall using a callback", "bypass the firewall"),
+]
+for text, gone in FIRES:
+    out = sanitize(text)
+    chk("%r is still rewritten" % gone, gone.lower() not in out.lower(), out)
+
+# --- rule ORDER is load-bearing, so pin it -----------------------------------
+# `the firewall` -> noun is deliberately placed AFTER `firewall bypass` ->
+# "network callback route". Reversed, "the firewall bypass" would first become "the
+# worker's network restriction bypass" and the second rule could no longer
+# match, leaving the framing the table exists to remove. That ordering lived
+# only in a source comment until this check.
+out = sanitize("the firewall bypass worked on the first try")
+chk("'the firewall bypass' is consumed by the bypass rule, not the noun rule",
+    "network callback route" in out and "network restriction bypass" not in out, out)
+
+# Determiners and hyphenation are common in prose. The previous replacement
+# made "a firewall bypass" into the ungrammatical "a OOB ...", while the noun
+# rule consumed only half of "firewall-bypass".
+for text in ("a firewall bypass worked", "the firewall-bypass failed"):
+    out = sanitize(text)
+    chk("firewall-bypass variant is consumed whole: %r" % text,
+        "network callback route" in out
+        and "network restriction-bypass" not in out
+        and "a OOB" not in out, out)
+
+# F10: sibling noun rewrites also sat after an indefinite article and produced
+# `a OOB ...`.  Replacements must start with a consonant and remain neutral.
+for text, expected in (
+    ("we need a covert channel", "a network callback channel"),
+    ("spawn a reverse shell", "a network callback session"),
+):
+    out = sanitize(text)
+    chk("indefinite article stays grammatical: %r" % text,
+        expected in out and "a OOB" not in out, out)
+
+# The three adjacent gaps reported with F10 are common grammatical variants,
+# and each currently either leaks the classifier phrase or creates a malformed
+# possessive.  Pin singular/plural, tense, and possessive separately.
+out = sanitize("the firewall bypasses both failed")
+chk("plural firewall bypasses are rewritten and keep plural agreement",
+    "network callback routes" in out and "firewall bypasses" not in out, out)
+
+out = sanitize("The payload evaded detection yesterday.")
+chk("past-tense detection wording is rewritten without breaking tense",
+    "satisfied the challenge's detection constraint" in out
+    and "evaded detection" not in out, out)
+
+out = sanitize("the firewall's rules blocked the callback")
+chk("possessive firewall wording does not produce a double possessive",
+    "the worker's network restriction rules" in out
+    and "restriction's rules" not in out, out)
+
+# --- a rewrite may not change the VERB or the POLARITY of the sentence -------
+# The rules above only ever checked that the subject survived. They passed for
+# months while a second rule made the identical mistake on the other side of
+# the verb: `(?:to )?bypass(?:es|ed|ing)? the firewall` was replaced by the
+# infinitive phrase "to use the job's OOB callback URL instead", which ate the
+# finite verb and inverted every negated sentence. Checking that "the firewall"
+# disappeared is exactly what failed to notice, so check the sentence instead.
+NEGATED = [
+    # a refutation must stay a refutation
+    ("There is no way to bypass the firewall from the worker.", "no way"),
+    ("The worker cannot bypass the firewall.", "cannot"),
+    ("Nothing the solver does bypasses the firewall.", "Nothing"),
+]
+for text, keeper in NEGATED:
+    out = sanitize(text)
+    chk("negation survives: %r" % text[:40], keeper.lower() in out.lower(), out)
+    # The OOB callback must not be described as available by a sentence that
+    # said the opposite. A NAT'd worker's only outbound channel is the
+    # collector; telling the agent it is unusable strands the whole run.
+    chk("...and it is not converted into an OOB-callback recommendation: %r"
+        % text[:40],
+        "oob callback url" not in out.lower(), out)
+
+FINITE_VERB = [
+    ("The exploit bypasses the firewall by using DNS.", "bypasses"),
+    ("The payload bypassed the firewall on the second try.", "bypassed"),
+]
+for text, verb in FINITE_VERB:
+    out = sanitize(text)
+    chk("finite verb %r is not replaced by an infinitive phrase" % verb,
+        verb in out, out)
+    chk("...leaving a grammatical sentence: %r" % text[:40],
+        not re.search(r"\b\w+ to (?:use|complete) the\b", out, re.I), out)
+
+# A detection finding must not become a claim that the exploit chain failed.
+# The old "evade detection" -> "complete the chain" rule made exactly that
+# semantic substitution under negation.
+for text, keeper in (
+    ("The payload did not evade detection.", "did not satisfy"),
+    ("The payload can evade detection.", "can satisfy"),
+):
+    out = sanitize(text)
+    chk("detection predicate and polarity survive: %r" % text,
+        keeper in out and "complete the chain" not in out, out)
+
+# --- a rule must not assert infrastructure the job may not have -------------
+# settings_io.py defaults callback_url to "" and _runner.py exports
+# COLLECTOR_URL only `if cb:` — and only into the SANDBOX env. A hint that
+# says every restriction routes "to the orchestrator's collector" claims a
+# channel that pwn/rev/crypto/forensic main may never have been given.
+out = sanitize("REFUTED: outbound DNS is firewalled")
+chk("'is firewalled' does not assert a collector that may not be configured",
+    "collector" not in out.lower(), out)
+
+print("")
+print("%d checks, %d failed" % (checks, fails))
+sys.exit(1 if fails else 0)

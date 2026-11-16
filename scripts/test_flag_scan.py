@@ -1,0 +1,1402 @@
+#!/usr/bin/env python3
+"""Regression suite for flag detection.
+
+Run from the repo root:   python3 scripts/test_flag_scan.py
+
+THE INCIDENT — job 0c04e636633c (rev, 96 turns, $13.30, 2h49m)
+It finished with meta.flags == ["DH{ + 36 chars of [a-z0-9_] + }"], which is a
+DESCRIPTION of a flag format, not a flag. Its provenance:
+
+    solver.py:306        print("target: DH{ + 36 chars of [a-z0-9_] + }")
+    solver.py.stdout:1   that banner
+    solver.py.stdout:25  "no flag found; tried 3383296 candidates in 1500s"
+    report.md            "The flag itself was not captured"
+    findings.json        exploit_status: "tested-failed"
+    solver emitted       ZERO FLAG_CANDIDATE markers
+
+Two defects let that through.
+
+1. The operator's `flag_format` feature compiled a LOOSER matcher than the
+   generic FLAG_RE it replaces:
+       FLAG_RE           \\{[^\\s}]{1,200}\\}     -- no whitespace, ever
+       job_flag_format_re \\{[^}\\r\\n]{1,256}\\}  -- spaces, brackets, plus signs
+   The docstring advertises the feature as NARROWING the match. On the
+   whitespace axis it was strictly wider, so an English sentence between the
+   braces matched. Turning the safety feature ON is what manufactured the
+   false positive. Same class appeared at two more sites (the brace-flag
+   reducers in _scan_markers and _accumulate_flag_candidates).
+
+2. The TRUSTED tier merges two very different sub-tiers: an explicit
+   FLAG_CANDIDATE marker, and a bare regex sweep of the same files. Here the
+   marker tier correctly returned empty and the sweep scraped the banner —
+   from a stream whose own last line said it had found nothing.
+"""
+from __future__ import annotations
+
+import ast as _ast
+import argparse
+import json
+import pathlib
+import re
+import shutil
+import sys
+import tempfile
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+MUTATIONS = (
+    "weak-any-tier-terminal",
+    "drop-marker-clause",
+    "drop-success-clause",
+    "accept-runner-regex",
+    "drop-provenance-passage",
+    "trust-self-result",
+    "drop-crash-no-run-gate",
+    "drop-web-evidence",
+    "drop-crypto-evidence",
+    "drop-web3-evidence",
+    "permit-misc-error",
+    "permit-forensic-error",
+    "keep-regex-source-noise",
+    "message-truthiness",
+    "drop-liberal-fallback",        # an unknown prefix is lost again
+    "liberal-ignores-declared-format",  # it overrides the operator's format
+    "liberal-widens-narrative",     # agent prose gets the loose sweep too
+)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mutate", choices=MUTATIONS)
+args = parser.parse_args()
+
+
+UNKNOWN = "acsc{" + ("7c1e" * 30) + "ab}"       # 122 hex, prefix FLAG_RE lacks
+KNOWN = "DH{" + ("b" * 32) + "}"                # a prefix FLAG_RE does carry
+
+
+def _replace_once(source: str, old: str, new: str) -> str:
+    count = source.count(old)
+    if count != 1:
+        raise RuntimeError(f"mutation anchor count is {count}, expected 1: {old!r}")
+    return source.replace(old, new, 1)
+
+
+COMMON_SOURCE = (ROOT / "modules" / "_common.py").read_text()
+MODULE_SOURCES = {
+    "pwn": (ROOT / "modules" / "pwn" / "analyzer.py").read_text(),
+    "rev": (ROOT / "modules" / "rev" / "analyzer.py").read_text(),
+    "web": (ROOT / "modules" / "web" / "analyzer.py").read_text(),
+    "crypto": (ROOT / "modules" / "crypto" / "analyzer.py").read_text(),
+    "web3": (ROOT / "modules" / "web3" / "analyzer.py").read_text(),
+    "misc": (ROOT / "modules" / "misc" / "orchestrator.py").read_text(),
+    "forensic": (ROOT / "modules" / "forensic" / "orchestrator.py").read_text(),
+}
+_GATE_RETURN = '''    return verdict == "success" or (
+        bool(flags_now) and provenance_tier == "marker"
+    )'''
+if args.mutate == "weak-any-tier-terminal":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE, _GATE_RETURN,
+        '    return verdict == "success" or bool(flags_now)',
+    )
+elif args.mutate == "drop-liberal-fallback":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE, "            trusted = _liberal\n", "")
+elif args.mutate == "liberal-ignores-declared-format":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE, "    if not trusted and fmt_re is None:",
+        "    if not trusted:")
+elif args.mutate == "liberal-widens-narrative":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE,
+        "    narrative = {f for f in _scan(_NARRATIVE_FLAG_SOURCES) "
+        "if not _is_placeholder_flag(f)}",
+        "    narrative = {f for f in _scan(_NARRATIVE_FLAG_SOURCES, "
+        "LIBERAL_FLAG_RE) if not _is_placeholder_flag(f)}")
+elif args.mutate == "drop-marker-clause":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE, _GATE_RETURN, '    return verdict == "success"',
+    )
+elif args.mutate == "drop-success-clause":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE, _GATE_RETURN,
+        '    return bool(flags_now) and provenance_tier == "marker"',
+    )
+elif args.mutate == "accept-runner-regex":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE,
+        'bool(flags_now) and provenance_tier == "marker"',
+        'bool(flags_now) and provenance_tier in ("marker", "runner_regex")',
+    )
+elif args.mutate == "drop-provenance-passage":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE,
+        '''                sandbox_result=last_sandbox,
+                provenance_out=flag_provenance,
+''',
+        '''                sandbox_result=last_sandbox,
+''',
+    )
+elif args.mutate == "trust-self-result":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE,
+        '    "callbacks.jsonl",\n)',
+        '    "callbacks.jsonl",\n'
+        '    "result.json",\n)',
+    )
+elif args.mutate == "drop-crash-no-run-gate":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE,
+        "    crashed_before_sandbox = sandbox_started is False and bool(agent_error)\n",
+        "    crashed_before_sandbox = False\n",
+    )
+elif args.mutate == "keep-regex-source-noise":
+    COMMON_SOURCE = _replace_once(
+        COMMON_SOURCE,
+        "        return bool(_REGEX_SOURCE_TAIL_RE.match(text, match.end()))\n",
+        "        return False\n",
+    )
+
+for _module in ("web", "crypto", "web3"):
+    if args.mutate == f"drop-{_module}-evidence":
+        MODULE_SOURCES[_module] = _replace_once(
+            MODULE_SOURCES[_module],
+            '        sandbox_started = agent_summary.get("sandbox_started")\n',
+            '        sandbox_started = None\n',
+        )
+
+for _module in ("misc", "forensic"):
+    if args.mutate == f"permit-{_module}-error":
+        MODULE_SOURCES[_module] = _replace_once(
+            MODULE_SOURCES[_module],
+            '        return False, "summary agent returned is_error=true"\n',
+            '        return None, "summary agent returned is_error=true"\n',
+        )
+
+if args.mutate == "message-truthiness":
+    for _module in ("pwn", "rev", "web", "crypto", "web3"):
+        MODULE_SOURCES[_module] = _replace_once(
+            MODULE_SOURCES[_module],
+            "            agent_error=agent_err_kind is not None,\n",
+            "            agent_error=bool(agent_err),\n",
+        )
+    for _module in ("misc", "forensic"):
+        MODULE_SOURCES[_module] = _replace_once(
+            MODULE_SOURCES[_module],
+            "            agent_error=agent_err is not None,\n",
+            "            agent_error=bool(agent_err),\n",
+        )
+
+_results: list[bool] = []
+
+
+def chk(label: str, cond: bool, got: object = "") -> None:
+    _results.append(bool(cond))
+    print(("PASS  " if cond else "FAIL  ") + label + ("" if cond else f"  | got={got!r}"))
+
+
+def section(name: str) -> None:
+    print("\n--- " + name + " " + "-" * max(0, 56 - len(name)))
+
+
+def _load(
+    jobdir: pathlib.Path,
+    flag_format: str = "",
+    *,
+    meta: dict | None = None,
+    meta_by_job: dict[str, dict] | None = None,
+):
+    """Load the real scanner with job_dir / read_meta redirected."""
+    tree = _ast.parse(COMMON_SOURCE)
+    nodes = [n for n in tree.body if isinstance(n, _ast.Assign)]
+    nodes += [n for n in tree.body if isinstance(n, _ast.FunctionDef)
+              and n.name in {"scan_job_for_flags", "_is_placeholder_flag",
+                             "job_flag_format_re", "flag_format_prefix",
+                             "_recorded_artifact_names",
+                             "_recorded_artifact_names_in_retry_chain",
+                             "_auto_retry_success"}]
+    default_meta = dict(meta or {})
+    if flag_format:
+        default_meta.setdefault("flag_format", flag_format)
+
+    def _read_meta(job_id: str) -> dict:
+        if meta_by_job is not None and job_id in meta_by_job:
+            return dict(meta_by_job[job_id])
+        return dict(default_meta)
+
+    ns: dict = {
+        "re": re, "json": json, "os": __import__("os"),
+        "Path": pathlib.Path,
+        "job_dir": lambda j: jobdir,
+        "read_meta": _read_meta,
+        "log_line": lambda j, s: _logs.append(s),
+    }
+    for n in nodes:
+        try:
+            exec(compile(_ast.Module(body=[n], type_ignores=[]), "<s>", "exec"), ns)
+        except Exception:
+            pass
+    return ns
+
+
+def _load_function(source: str, name: str):
+    """Load one dependency-free helper from a production module source."""
+    tree = _ast.parse(source)
+    funcs = [
+        node for node in tree.body
+        if isinstance(node, _ast.FunctionDef) and node.name == name
+    ]
+    if len(funcs) != 1:
+        raise RuntimeError(f"expected one {name}, found {len(funcs)}")
+    ns = {"Optional": __import__("typing").Optional}
+    exec(compile(_ast.Module(body=funcs, type_ignores=[]), "<module>", "exec"), ns)
+    return ns[name]
+
+
+def _exercise_finalizer(
+    module: str,
+    agent_summary: dict,
+    scan_flags: list[str],
+    *,
+    job_files: dict[str, str] | None = None,
+):
+    """Run the production run_job finalizer with all external work stubbed."""
+    source = MODULE_SOURCES[module]
+    tree = _ast.parse(source)
+    funcs = [
+        node for node in tree.body
+        if isinstance(node, _ast.FunctionDef) and node.name == "run_job"
+    ]
+    if len(funcs) != 1:
+        raise RuntimeError(f"expected one {module}.run_job, found {len(funcs)}")
+
+    class _AnyIO:
+        @staticmethod
+        def run(*_args, **_kwargs):
+            # run_job pops the sandbox value; isolate every exercise.
+            return json.loads(json.dumps(agent_summary))
+
+    class _OS:
+        environ: dict[str, str] = {}
+
+    jobdir = pathlib.Path(tempfile.mkdtemp())
+    for name, text in (job_files or {}).items():
+        (jobdir / name).write_text(text)
+    meta_writes: list[dict] = []
+    scan_calls: list[dict] = []
+
+    def _write(_job_id: str, **updates) -> None:
+        meta_writes.append(updates)
+
+    def _scan(_job_id: str, *args, **kwargs) -> list[str]:
+        scan_calls.append({"args": args, **kwargs})
+        return list(scan_flags)
+
+    ns = {
+        "Optional": __import__("typing").Optional,
+        "anyio": _AnyIO,
+        "os": _OS,
+        "json": json,
+        "traceback": __import__("traceback"),
+        "Path": pathlib.Path,
+        "apply_to_env": lambda: None,
+        "read_meta": lambda _job_id: {},
+        "reap_chal_containers": lambda *_args, **_kwargs: None,
+        "reap_chal_images": lambda *_args, **_kwargs: None,
+        "write_meta": _write,
+        "_write_meta": _write,
+        "job_dir": lambda _job_id: jobdir,
+        "_job_dir": lambda _job_id: jobdir,
+        "log_line": lambda *_args, **_kwargs: None,
+        "_log": lambda *_args, **_kwargs: None,
+        "extract_cost": lambda _summary: 0.0,
+        "prior_session_cost": lambda _job_id: 0.0,
+        "scan_job_for_flags": _scan,
+        "classify_stop_reason": lambda reason, fallback="agent_error": {
+            "timeout": "timeout",
+            "process_error": "transport_error",
+            "unexpected_eof": "transport_error",
+            "cancelled": "killed",
+        }.get(str(reason or "").lower(), fallback),
+        "emit_event": lambda *_args, **_kwargs: None,
+        "_is_placeholder_flag": lambda _flag: False,
+        "has_provider_auth": lambda: True,
+        "active_provider": lambda: "test",
+        "_run_agent": object(),
+        "_claude_summary": object(),
+        "_spawn_collector": lambda *_args, **_kwargs: "collector ok",
+        # The finalizers no longer hardcode "no_flag" — they ask whether there
+        # is a candidate worth an operator verdict. Inject the REAL decider
+        # rather than a constant, so this harness keeps exercising that branch
+        # instead of pinning the answer it used to have. It reads through the
+        # `read_meta` stub above, which returns {}, so a run with no
+        # candidates still lands on "no_flag" exactly as before.
+        "no_flag_status": _load_function(COMMON_SOURCE, "no_flag_status"),
+    }
+    if module in {"misc", "forensic"}:
+        ns["_summary_agent_evidence"] = _load_function(
+            source, "_summary_agent_evidence"
+        )
+        # These two modules now run the REPORT phase from run_job, the same
+        # way the analyzers do (misc/forensic entries were indexing into the
+        # exploit library with no technique at all — see
+        # scripts/test_report_phase_reaches_misc_forensic.py). Stubbed like
+        # `_claude_summary` above: `_AnyIO.run` never calls what it is handed,
+        # so an object() is enough to satisfy the name.
+        ns["_run_report_phase"] = object()
+    exec(compile(_ast.Module(body=funcs, type_ignores=[]), "<module>", "exec"), ns)
+
+    if module in {"pwn", "web", "crypto", "web3"}:
+        result = ns["run_job"]("j", None, None, None, True, None)
+    elif module == "rev":
+        result = ns["run_job"]("j", None, None, True, None)
+    elif module == "misc":
+        result = ns["run_job"]("j", None, None, None, False, None)
+    else:
+        result = ns["run_job"](
+            "j", "image.bin", "disk", "linux", None, False, False, None
+        )
+    terminal = [write for write in meta_writes if write.get("stage") == "done"][-1]
+    return result, terminal, scan_calls[-1]
+
+
+_logs: list[str] = []
+
+
+def _job(**files) -> pathlib.Path:
+    d = pathlib.Path(tempfile.mkdtemp())
+    for name, text in files.items():
+        (d / name.replace("__", ".")).write_text(text)
+    return d
+
+
+# The exact banner from the incident.
+BANNER = "target: DH{ + 36 chars of [a-z0-9_] + }"
+DENIAL = "no flag found; tried 3383296 candidates in 1500s"
+REAL = "DH{SCANEXAMPLEFLAGNOTREALzzSCANEXAMPLEFLAGNOTREALzzSCANEXAMPLEFLA}"
+REAL2 = "DH{q7z_k<<(m)>>v_w3x}"
+CANDIDATE_PLACEHOLDER = "DH{candidate_here}"
+NARRATIVE_CAPTURE = "DH{NARRATIVEEXAMPLENOTREALzzxx}"
+NARRATIVE_DECOY = "DH{real_looking_but_fake_2026}"
+
+
+def main() -> int:
+    section("the matcher must not be widened by turning the guard ON")
+    generic = re.compile(r"DH\{[^\s}]{1,200}\}")
+    src = (ROOT / "modules" / "_common.py").read_text()
+    fmt_line = [l for l in src.splitlines()
+                if "re.escape(prefix)" in l and "re.compile" in l]
+    chk("job_flag_format_re exists", len(fmt_line) == 1, fmt_line)
+    chk("REGRESSION: it excludes whitespace, like FLAG_RE",
+        r"[^\s}]" in fmt_line[0], fmt_line[0].strip())
+    chk("...and no longer uses the permissive class",
+        r"[^}\r\n]" not in fmt_line[0], fmt_line[0].strip())
+    reducers = [l for l in src.splitlines() if "_bf = re.search(" in l]
+    chk("both brace-flag reducers tightened too",
+        len(reducers) == 2 and all(r"[^\s}]" in l for l in reducers), reducers)
+
+    section("the incident, end to end")
+    d = _job(**{"solver.py__stdout": BANNER + "\n" + DENIAL + "\n",
+                "solver.py__stderr": "",
+                "result.json": json.dumps({"stdout": BANNER + "\n" + DENIAL})})
+    ns = _load(d, flag_format="DH{...}")
+    chk("the banner is NOT a flag (trusted tier)",
+        ns["scan_job_for_flags"]("j", trusted_only=True) == [], )
+    chk("...nor at any tier", ns["scan_job_for_flags"]("j") == [])
+
+    section("a real capture must still be found")
+    d = _job(**{"solver.py__stdout": REAL + "\n", "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    chk("a bare real flag is found", ns["scan_job_for_flags"]("j", trusted_only=True) == [REAL])
+
+    d = _job(**{"solver.py__stdout": REAL2 + "\n", "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    chk("a real flag with punctuation is found",
+        ns["scan_job_for_flags"]("j", trusted_only=True) == [REAL2],
+        ns["scan_job_for_flags"]("j", trusted_only=True))
+
+    section("an unknown prefix in a TRUSTED source is not lost")
+    # Job 7fa40416e6de: the answer was `acsc{<122 hex>}` in solver.py.stdout,
+    # the solver printed no FLAG_CANDIDATE marker, and `acsc` is not one of
+    # FLAG_RE's ~20 prefixes. It reached the operator only through the advisory
+    # harvester. settings_io.py already recorded REVERSSEUM{...} and
+    # pokactf2024{...} lost the same way.
+    d = _job(**{"solver.py__stdout": UNKNOWN + "\n", "solver.py__stderr": ""})
+    ns = _load(d)
+    prov: dict = {}
+    got = ns["scan_job_for_flags"]("j", trusted_only=True, provenance_out=prov)
+    chk("L1 an unknown-prefix flag in a trusted source is found",
+        got == [UNKNOWN], got)
+    chk("L2 ...and the widening is recorded as a separate fact",
+        prov.get("liberal") is True and prov.get("tier") == "runner_regex", prov)
+
+    # The operator's declared format is a decision, not a hint. Widening past
+    # it would resurrect exactly what the format exists to exclude.
+    d = _job(**{"solver.py__stdout": UNKNOWN + "\n", "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    got = ns["scan_job_for_flags"]("j", trusted_only=True)
+    chk("L3 a DECLARED flag_format is never widened", got == [], got)
+
+    # Never widen a scan that already succeeded — the loose sweep is a last
+    # resort, not a supplement.
+    d = _job(**{"solver.py__stdout": KNOWN + "\n" + UNKNOWN + "\n",
+                "solver.py__stderr": ""})
+    ns = _load(d)
+    prov = {}
+    got = ns["scan_job_for_flags"]("j", trusted_only=True, provenance_out=prov)
+    chk("L4 a known-prefix hit is not joined by the loose one",
+        got == [KNOWN], got)
+    chk("L5 ...and nothing claims it was widened", prov.get("liberal") is None, prov)
+
+    # Narrative prose is where chal-author placeholders live; the trusted tier
+    # is the runner's own output. Only the latter gets the loose sweep.
+    # Deliberately NOT the hex fixture: at the narrative tier the placeholder
+    # guard runs WITHOUT trusted=True, so a 122-hex body is dropped by the
+    # hash-width rule whether or not the sweep was widened — a check that
+    # cannot tell the two apart. This body survives that rule, so the only
+    # thing that can accept it is a widening that should not exist.
+    NARRATIVE_ONLY = "acsc{gremlin_pipe_walk}"
+    d = _job(**{"report.md": NARRATIVE_ONLY + "\n"})
+    ns = _load(d)
+    chk("L6 agent prose is NOT widened", ns["scan_job_for_flags"]("j") == [],
+        ns["scan_job_for_flags"]("j"))
+
+    # The placeholder guard still runs, and the denial rule still overrides.
+    d = _job(**{"solver.py__stdout": "acsc{your_flag_here}\n",
+                "solver.py__stderr": ""})
+    ns = _load(d)
+    chk("L7 a widened match is still placeholder-filtered",
+        ns["scan_job_for_flags"]("j", trusted_only=True) == [],
+        ns["scan_job_for_flags"]("j", trusted_only=True))
+
+    d = _job(**{"solver.py__stdout": UNKNOWN + "\nno flag found\n",
+                "solver.py__stderr": ""})
+    ns = _load(d)
+    chk("L8 ...and still dropped when the run declares failure",
+        ns["scan_job_for_flags"]("j", trusted_only=True) == [],
+        ns["scan_job_for_flags"]("j", trusted_only=True))
+
+    section("A6 regex-source noise is narrower than real flag syntax")
+    regex_sources = (
+        'rx = r"DH{[^}]+}"\n',
+        'rx = r"DH{[^}]*}"\n',
+        'rx = r"DH{[^}]?}"\n',
+        'rx = r"DH{[^}]{1,64}}"\n',
+    )
+    for index, source_text in enumerate(regex_sources):
+        d = _job(**{"solver.py__stdout": source_text, "solver.py__stderr": ""})
+        ns = _load(d, flag_format="DH{...}")
+        got = ns["scan_job_for_flags"]("j", trusted_only=True)
+        chk(f"A6 regex source variant {index + 1} drops only DH{{[^}}", got == [], got)
+
+    # A filtered source fragment is not a later candidate and therefore must
+    # not reset the existing "denial after the last candidate" boundary.  If it
+    # did, a trailing regex snippet could launder an earlier failed sweep hit.
+    _logs.clear()
+    d = _job(**{
+        "solver.py__stdout": REAL + "\n" + DENIAL + "\n" + regex_sources[0],
+        "solver.py__stderr": "",
+    })
+    ns = _load(d, flag_format="DH{...}")
+    got = ns["scan_job_for_flags"]("j", trusted_only=True)
+    chk(
+        "A6 filtered regex source cannot hide a denial after the real sweep hit",
+        got == [] and any("FLAG SWEEP SUPPRESSED" in line for line in _logs),
+        (got, _logs),
+    )
+
+    real_flags = (
+        "DH{abcdef123456}",
+        "DH{why.so.serious?}",
+        "DH{c0st$+t4x}",
+        "DH{f(x)=y}",
+        "DH{arr[0]_idx}",
+        "DH{a|b*c}",
+        REAL,
+    )
+    for flag in real_flags:
+        d = _job(**{"solver.py__stdout": flag + "\n", "solver.py__stderr": ""})
+        ns = _load(d, flag_format="DH{...}")
+        got = ns["scan_job_for_flags"]("j", trusted_only=True)
+        chk(f"A6 real flag survives: {flag}", got == [flag], got)
+
+    brace_less = "rawflag_7f91a0c2"
+    d = _job(**{
+        "solver.py__stdout": "FLAG_CANDIDATE: " + brace_less + "\n",
+        "solver.py__stderr": "",
+    })
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    got = ns["scan_job_for_flags"]("j", trusted_only=True, provenance_out=pv)
+    chk(
+        "A6 brace-less explicit marker remains authoritative",
+        got == [brace_less] and pv.get("tier") == "marker",
+        (got, pv),
+    )
+
+    d = _job(**{
+        "solver.py__stdout": "FLAG_CANDIDATE: DH{[^}\n",
+        "solver.py__stderr": "",
+    })
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    got = ns["scan_job_for_flags"]("j", trusted_only=True, provenance_out=pv)
+    chk(
+        "A6 explicit marker bypasses generic regex-source filtering",
+        got == ["DH{[^}"] and pv.get("tier") == "marker",
+        (got, pv),
+    )
+
+    section("the MARKER tier is never subject to the denial rule")
+    d = _job(**{"solver.py__stdout": DENIAL + "\nFLAG_CANDIDATE: " + REAL + "\n",
+                "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    chk("an explicit marker wins over a stale denial line",
+        ns["scan_job_for_flags"]("j", trusted_only=True) == [REAL],
+        ns["scan_job_for_flags"]("j", trusted_only=True))
+    marker_pv: dict = {}
+    marker_flags = ns["scan_job_for_flags"](
+        "j", trusted_only=True, provenance_out=marker_pv
+    )
+    chk("REGRESSION: marker capture terminates despite a crash verdict",
+        ns["_auto_retry_success"](marker_flags, "crash", marker_pv.get("tier", "")),
+        (marker_flags, marker_pv))
+
+    section("a sweep hit under a denial is dropped — but LOUDLY")
+    _logs.clear()
+    d = _job(**{"solver.py__stdout": REAL + "\n" + DENIAL + "\n",
+                "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    got = ns["scan_job_for_flags"]("j", trusted_only=True)
+    chk("the sweep hit is suppressed", got == [], got)
+    chk("REGRESSION: the operator is told, with the candidate",
+        any("FLAG SWEEP SUPPRESSED" in l and REAL in l for l in _logs), _logs)
+    chk("...and told how to override it",
+        any("FLAG_CANDIDATE" in l for l in _logs), _logs)
+
+    section("...but a denial BEFORE the flag is about an earlier attempt")
+    # The suppression rule reads the run's own words. Order is what makes those
+    # words mean anything: a brute-force loop that prints a per-attempt failure
+    # and THEN the flag is the normal shape of success, not of failure. Reading
+    # the whole file (as this first did) silently loses that flag — the exact
+    # class that cost job a3d4d448 a genuine DH{<64 hex>}.
+    _logs.clear()
+    d = _job(**{"solver.py__stdout": "k=1: no flag found\nk=2: " + REAL + "\n",
+                "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    got = ns["scan_job_for_flags"]("j", trusted_only=True)
+    chk("a flag printed AFTER a per-attempt denial survives", got == [REAL], got)
+    chk("...and nothing is logged as suppressed", not _logs, _logs)
+
+    section("provenance names WHICH tier promoted the flag")
+    d = _job(**{"solver.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n",
+                "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    pv: dict = {}
+    ns["scan_job_for_flags"]("j", trusted_only=True, provenance_out=pv)
+    chk("an explicit marker reports tier=marker", pv.get("tier") == "marker", pv)
+
+    d = _job(**{"solver.py__stdout": REAL + "\n", "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    ns["scan_job_for_flags"]("j", trusted_only=True, provenance_out=pv)
+    chk("REGRESSION: a bare sweep hit is NOT reported as a declaration",
+        pv.get("tier") == "runner_regex", pv)
+    chk("REGRESSION: bare runner regex does not terminate on a crash verdict",
+        not ns["_auto_retry_success"]([REAL], "crash", pv.get("tier", "")), pv)
+
+    d = _job(**{"report.md": "the flag is " + REAL + "\n"})
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    ns["scan_job_for_flags"]("j", provenance_out=pv)
+    chk("agent prose reports tier=narrative", pv.get("tier") == "narrative", pv)
+
+    d = _job(**{"solver.py__stdout": "nothing here\n"})
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    ns["scan_job_for_flags"]("j", provenance_out=pv)
+    chk("no flag reports no tier", pv.get("tier") == "", pv)
+
+    section("a metavariable is not a capture, even digit-led")
+    # The gap the whitespace parity fix does NOT close: `<64hex>` has no
+    # whitespace, so it rides the plain FLAG_RE path too. `DH{<36 chars>}` was
+    # in this job's findings.json.
+    d = _job(**{"solver.py__stdout": "recovered: DH{<64hex>}\n",
+                "solver.py__stderr": ""})
+    ns = _load(d, flag_format="DH{...}")
+    ph = ns["_is_placeholder_flag"]
+    for meta_v in ("DH{<64hex>}", "DH{<32hex>}", "DH{<36 chars>}",
+                   "DH{<32_hex_chars>}", "DH{<flag>}"):
+        chk(f"  {meta_v} is a placeholder at the TRUSTED tier",
+            ph(meta_v, trusted=True), meta_v)
+    chk("REGRESSION: a flag with `<<`/`>>` in its body, DH{q7z_k<<(m)>>v_w3x}, survives",
+        not ph("DH{q7z_k<<(m)>>v_w3x}", trusted=True)
+        and not ph("DH{q7z_k<<(m)>>v_w3x}"))
+
+    section("an apostrophe is content; a delimiter abuts something else")
+    # Commit 735ed6e made "a quote anywhere in the inner" reject the whole
+    # value, to stop the narrative tier scraping the solver's own source line
+    # out of run.log. Its WATCH-ITEM said the char-shape guards would eat a
+    # real flag sooner or later. They did — twice, on an apostrophe between
+    # word characters:
+    #
+    #   3a6670825945  (value withheld)  operator-confirmed, and recoverable
+    #                 ONLY by hand out of flag_grain.txt
+    #   60a10650416f  (value withheld) reproduced through solver_smoke in
+    #                 the runner, canonical FLAG_CANDIDATE marker, still no_flag
+    #
+    # Every value below is INVENTED — real accepted flags never enter the tree
+    # (scripts/test_no_committed_secrets.py treats them as an exact-value
+    # oracle) — but each carries the shape of the case it stands for.
+    APOSTROPHE_KEEP = ("DH{synth_kv'3_wq9}",      # digit after the quote
+                       "DH{synth_mz'5_tt2}",           # digit after the quote
+                       "DH{synth_qq'x_rr7}")           # letter after the quote
+    for keep in APOSTROPHE_KEEP:
+        chk(f"  a content apostrophe survives: {keep}",
+            not ph(keep) and not ph(keep, trusted=True), keep)
+
+    # The exact string commit 735ed6e recorded reaching meta.flags, plus the
+    # variants a differently-formatted solver line would produce. The quote is
+    # a DELIMITER in every one: it abuts a space, an operator, or the edge.
+    CODE_FRAGMENTS = ('DH{" + secret + "}',   # bcd883b0e70f, verbatim
+                      'DH{"+secret+"}',
+                      "DH{'+s+'}",
+                      "DH{flag'}",
+                      "DH{'flag}")
+    for frag in CODE_FRAGMENTS:
+        chk(f"  a code fragment is still rejected: {frag}",
+            ph(frag) and ph(frag, trusted=True), frag)
+
+    # The whole point is that it reaches meta.flags, not just that the
+    # predicate says so — the value was lost at EVERY tier, marker included.
+    d = _job(**{"solver.py__stdout":
+                "FLAG_CANDIDATE: " + APOSTROPHE_KEEP[0] + "\n"})
+    ns2 = _load(d, flag_format="DH{...}")
+    chk("REGRESSION: an apostrophe flag now reaches the trusted tier",
+        ns2["scan_job_for_flags"]("j", trusted_only=True) == [APOSTROPHE_KEEP[0]],
+        ns2["scan_job_for_flags"]("j", trusted_only=True))
+
+    d = _job(**{"solver.py__stdout": 'wrote: flag = "DH{" + secret + "}"\n'})
+    ns2 = _load(d, flag_format="DH{...}")
+    chk("...and the logged source line still reaches nothing",
+        ns2["scan_job_for_flags"]("j", trusted_only=True) == [],
+        ns2["scan_job_for_flags"]("j", trusted_only=True))
+    chk("...and a digit-led metavariable never reaches meta.flags",
+        ns["scan_job_for_flags"]("j", trusted_only=True) == [],
+        ns["scan_job_for_flags"]("j", trusted_only=True))
+
+    section("narrative placeholders must not terminate auto-retry")
+    for job_id in ("5c3974d26ab4", "47de39fd0c01", "94d105ace230"):
+        d = _job(**{"report.md": "candidate: " + CANDIDATE_PLACEHOLDER + "\n"})
+        ns = _load(d, flag_format="DH{...}")
+        flags = ns["scan_job_for_flags"](job_id)
+        chk(f"REGRESSION {job_id}: DH{{candidate_here}} is filtered",
+            flags == [], flags)
+        chk(f"REGRESSION {job_id}: filtered prose keeps the retry loop open",
+            not ns["_auto_retry_success"](flags, "crash", ""), flags)
+
+    source = COMMON_SOURCE
+    chk("REGRESSION: production scan passes provenance to the retry gate",
+        source.count("provenance_out=flag_provenance,") == 1
+        and source.count(
+            'flags_now, verdict, flag_provenance.get("tier", "")'
+        ) == 1)
+    _event_start = source.find('            emit_event(\n                job_id,\n'
+                               '                "run",\n                "flag_gate",')
+    _event_end = source.find('            if terminal_capture:', _event_start)
+    _event = source[_event_start:_event_end] if _event_start >= 0 else ""
+    chk("REGRESSION: the attempt event joins provenance, verdict, and decision",
+        _event_start >= 0 and all(
+            token in _event for token in (
+                "flags_count=", "tier=", "suppressed=", "verdict=",
+                "exit_code=", "terminal_capture=", "reason=",
+            )
+        ), _event)
+
+    section("non-placeholder narrative stays visible without short-circuiting")
+    # A narrative value is still returned to each module's final analyzer scan,
+    # which writes that same list to meta.flags; only this retry decision changes.
+    d = _job(**{"report.md": "example only: " + NARRATIVE_DECOY + "\n"})
+    ns = _load(d, flag_format="DH{...}")
+    decoy_pv: dict = {}
+    decoy_flags = ns["scan_job_for_flags"]("decoy", provenance_out=decoy_pv)
+    chk("REGRESSION: a plausible narrative decoy stays visible for curation",
+        decoy_flags == [NARRATIVE_DECOY] and decoy_pv.get("tier") == "narrative",
+        (decoy_flags, decoy_pv))
+    chk("REGRESSION: narrative decoy + crash does not terminate auto-retry",
+        not ns["_auto_retry_success"](
+            decoy_flags, "crash", decoy_pv.get("tier", "")
+        ), (decoy_flags, decoy_pv))
+
+    d = _job(**{"report.md": "captured live: " + NARRATIVE_CAPTURE + "\n"})
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    flags = ns["scan_job_for_flags"]("07d256325546", provenance_out=pv)
+    chk("REGRESSION 07d256325546: the narrative capture survives",
+        flags == [NARRATIVE_CAPTURE] and pv.get("tier") == "narrative",
+        (flags, pv))
+    chk("REGRESSION 07d256325546: crash+narrative keeps retry decision open",
+        not ns["_auto_retry_success"](
+            flags, "crash", pv.get("tier", "")
+        ), (flags, pv))
+    for success_tier in ("", "marker", "runner_regex", "narrative"):
+        chk(f"judge success remains terminal at tier={success_tier or 'empty'}",
+            ns["_auto_retry_success"]([], "success", success_tier), success_tier)
+    chk("candidate plus real entropy is not classified as a placeholder",
+        not ns["_is_placeholder_flag"](
+            "DH{SCRUBBED_CAPTURE_07}"
+        ))
+
+    section("crash/no-run evidence cannot self-launder through result.json")
+    stale = "DH{stale_narrative_after_agent_crash}"
+    d = _job(**{
+        "report.md": "unverified candidate: " + stale + "\n",
+        "result.json": json.dumps({"sandbox": None, "flags": [stale]}),
+    })
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    got = ns["scan_job_for_flags"](
+        "0d88d50ad167",
+        sandbox_result=None,
+        sandbox_started=False,
+        agent_error=True,
+        provenance_out=pv,
+    )
+    chk(
+        "A0-a agent error + explicit no-run rejects narrative and self result",
+        got == [] and pv.get("tier") == ""
+        and "result.json" not in ns["_TRUSTED_FLAG_SOURCES"],
+        (got, pv, ns["_TRUSTED_FLAG_SOURCES"]),
+    )
+
+    d = _job(**{
+        "solver.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n",
+        "solver.py__stderr": "",
+    })
+    ns = _load(d, flag_format="DH{...}")
+    pv = {}
+    got = ns["scan_job_for_flags"](
+        "2b495752ce97",
+        sandbox_result={"exit_code": 0},
+        sandbox_started=True,
+        agent_error=False,
+        provenance_out=pv,
+    )
+    chk(
+        "A0-b executed exit-0 marker capture still passes",
+        got == [REAL] and pv.get("tier") == "marker",
+        (got, pv),
+    )
+
+    section("I4 runner provenance blocks only stale runner outputs")
+    runner_artifacts = {
+        "script": "solver.sage",
+        "stdout": "solver.sage.stdout",
+        "stderr": "solver.sage.stderr",
+    }
+    runner_dir = _job(**{
+        "solver.sage__stdout": "FLAG_CANDIDATE: " + REAL + "\n",
+        "solver.sage__stderr": "",
+    })
+    runner_ns = _load(
+        runner_dir,
+        flag_format="DH{...}",
+        meta={"artifacts": runner_artifacts},
+    )
+    pv = {}
+    got = runner_ns["scan_job_for_flags"](
+        "same-job-attempt-2",
+        sandbox_started=False,
+        agent_error=True,
+        provenance_out=pv,
+    )
+    chk(
+        "I4 R1 ATK/multi-attempt: attempt-1 runner marker is stale when attempt-2 crashes",
+        got == [] and pv.get("tier") == "",
+        (got, pv),
+    )
+
+    pv = {}
+    got = runner_ns["scan_job_for_flags"](
+        "executed-control",
+        sandbox_started=True,
+        agent_error=False,
+        provenance_out=pv,
+    )
+    chk(
+        "I4 R1 CTL1: an executed runner artifact remains authoritative",
+        got == [REAL] and pv.get("tier") == "marker",
+        (got, pv),
+    )
+
+    legacy_dir = _job(**{
+        "solver.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n",
+        "solver.py__stderr": "",
+    })
+    legacy_ns = _load(legacy_dir, flag_format="DH{...}")
+    pv = {}
+    got = legacy_ns["scan_job_for_flags"](
+        "legacy-rescan",
+        provenance_out=pv,
+    )
+    chk(
+        "I4 R1 CTL2: a pre-recording legacy job still rescans",
+        got == [REAL] and pv.get("tier") == "marker",
+        (got, pv),
+    )
+
+    oob_dir = _job(**{
+        "callbacks.jsonl": json.dumps({"body": REAL}) + "\n",
+    })
+    oob_ns = _load(
+        oob_dir,
+        flag_format="DH{...}",
+        meta={"artifacts": runner_artifacts},
+    )
+    pv = {}
+    got = oob_ns["scan_job_for_flags"](
+        "collector-control",
+        sandbox_started=False,
+        agent_error=True,
+        provenance_out=pv,
+    )
+    chk(
+        "I4 R1 CTL3: a crash does not suppress the OOB collector",
+        got == [REAL] and pv.get("tier") == "runner_regex",
+        (got, pv),
+    )
+
+    retry_ns = _load(
+        runner_dir,
+        meta_by_job={
+            "retry-child": {"flag_format": "DH{...}", "retry_of": "retry-parent"},
+            "retry-parent": {"artifacts": runner_artifacts},
+        },
+    )
+    pv = {}
+    got = retry_ns["scan_job_for_flags"](
+        "retry-child",
+        sandbox_started=False,
+        agent_error=True,
+        provenance_out=pv,
+    )
+    chk(
+        "I4 R1 retry: copied runner provenance is inherited from retry_of",
+        got == [] and pv.get("tier") == "",
+        (got, pv),
+    )
+
+    section("I1b extends crash evidence to every remaining module")
+    one_shot_evidence = {
+        module: _load_function(source, "_summary_agent_evidence")
+        for module, source in MODULE_SOURCES.items()
+        if module in {"misc", "forensic"}
+    }
+    for module, evidence_fn in one_shot_evidence.items():
+        chk(
+            f"I1b {module}: explicit provider error is known no-sandbox evidence",
+            evidence_fn({"result": {"is_error": True}})
+            == (False, "summary agent returned is_error=true"),
+            evidence_fn({"result": {"is_error": True}}),
+        )
+        chk(
+            f"I1b {module}: successful one-shot result is not an agent error",
+            evidence_fn({"result": {"is_error": False}}) == (False, None),
+            evidence_fn({"result": {"is_error": False}}),
+        )
+        unknowns = [
+            evidence_fn(None),
+            evidence_fn({}),
+            evidence_fn({"result": {"is_error": "unknown"}}),
+        ]
+        chk(
+            f"I1b {module}: absent/malformed result remains unknown",
+            unknowns == [(None, None)] * 3,
+            unknowns,
+        )
+
+    crash_evidence = {
+        "pwn": (False, "agent crashed"),
+        "rev": (False, "agent crashed"),
+        "web": (False, "agent crashed"),
+        "crypto": (False, "agent crashed"),
+        "web3": (False, "agent crashed"),
+        **{
+            module: evidence_fn({"result": {"is_error": True}})
+            for module, evidence_fn in one_shot_evidence.items()
+        },
+    }
+    crash_dir = _job(**{
+        "report.md": "unverified candidate: " + stale + "\n",
+        "result.json": json.dumps({"sandbox": None, "flags": [stale]}),
+    })
+    crash_ns = _load(crash_dir, flag_format="DH{...}")
+    for module, (started, error) in crash_evidence.items():
+        pv = {}
+        got = crash_ns["scan_job_for_flags"](
+            "0d88d50ad167",
+            sandbox_started=started,
+            agent_error=bool(error),
+            provenance_out=pv,
+        )
+        chk(
+            f"I1b {module}: crash/no-run rejects the 0d88 narrative",
+            got == [] and pv.get("tier") == "",
+            (got, pv, started, error),
+        )
+        if module in {"pwn", "rev", "web", "crypto", "web3"}:
+            artifact_key = (
+                "solver_present" if module in {"rev", "crypto"}
+                else "exploit_present"
+            )
+            summary = {
+                "sandbox": None,
+                "sandbox_started": False,
+                "agent_error": "agent crashed",
+                "agent_error_kind": "agent_error",
+                artifact_key: True,
+            }
+            expected_status = "no_flag"
+        else:
+            summary = {"result": {"is_error": True}}
+            expected_status = "failed"
+        result, terminal, scan_call = _exercise_finalizer(module, summary, got)
+        chk(
+            f"I1b {module}: production finalizer turns the crash into 0 flags",
+            result["flags"] == []
+            and terminal.get("status") == expected_status
+            and scan_call.get("sandbox_started") is False
+            and scan_call.get("agent_error") is True,
+            (result, terminal, scan_call),
+        )
+
+    control_files = {
+        "pwn": {"exploit.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n"},
+        "rev": {"solver.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n"},
+        "web": {"exploit.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n"},
+        "crypto": {"solver.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n"},
+        "web3": {"exploit.py__stdout": "FLAG_CANDIDATE: " + REAL + "\n"},
+        "misc": {"report.md": "FLAG_CANDIDATE: " + REAL + "\n"},
+        "forensic": {"report.md": "FLAG_CANDIDATE: " + REAL + "\n"},
+    }
+    expected_tiers = {
+        "pwn": "marker", "rev": "marker",
+        "web": "marker", "crypto": "marker", "web3": "marker",
+        "misc": "marker", "forensic": "marker",
+    }
+    for module, files in control_files.items():
+        control_dir = _job(**files)
+        control_ns = _load(control_dir, flag_format="DH{...}")
+        if module in one_shot_evidence:
+            started, error = one_shot_evidence[module](
+                {"result": {"is_error": False}}
+            )
+        else:
+            started, error = True, None
+        pv = {}
+        one_shot_scan = (
+            {
+                "trusted_files_only": ["report.md"],
+                "trusted_only": True,
+                "marker_only": True,
+            }
+            if module in one_shot_evidence else {}
+        )
+        got = control_ns["scan_job_for_flags"](
+            "2b495752ce97",
+            sandbox_started=started,
+            agent_error=bool(error),
+            provenance_out=pv,
+            **one_shot_scan,
+        )
+        chk(
+            f"I1b {module}: normal execution plus flag remains finished-eligible",
+            got == [REAL] and pv.get("tier") == expected_tiers[module],
+            (got, pv, started, error),
+        )
+        if module in {"pwn", "rev", "web", "crypto", "web3"}:
+            artifact_key = (
+                "solver_present" if module in {"rev", "crypto"}
+                else "exploit_present"
+            )
+            summary = {
+                "sandbox": {"exit_code": 0},
+                "sandbox_started": True,
+                artifact_key: True,
+            }
+            expected_started = True
+        else:
+            summary = {"result": {"is_error": False}}
+            expected_started = False
+        result, terminal, scan_call = _exercise_finalizer(module, summary, got)
+        chk(
+            f"I1b {module}: production finalizer keeps normal flag as finished",
+            result["flags"] == [REAL]
+            and terminal.get("status") == "finished"
+            and scan_call.get("sandbox_started") is expected_started
+            and scan_call.get("agent_error") is False,
+            (result, terminal, scan_call),
+        )
+
+    # A deterministic sweep is discovery, not the challenge's acceptance
+    # oracle.  Misc and forensic must preserve those strings for analyst/UI
+    # triage without letting either one finish the job.  Only the explicit
+    # report marker exercised above is promotable.
+    one_shot_leads = {
+        "misc": {
+            "findings.json": json.dumps({
+                "strings": {"flag_candidates": [REAL]},
+                "embedded_flag_hits": [{"flag": REAL}],
+            }),
+        },
+        "forensic": {
+            "summary.json": json.dumps({"raw_flag_candidates": [REAL]}),
+        },
+    }
+    for module, files in one_shot_leads.items():
+        result, terminal, scan_call = _exercise_finalizer(
+            module,
+            {"result": {"is_error": False}},
+            [],
+            job_files=files,
+        )
+        chk(
+            f"I1b {module}: raw sweep literal remains a lead, not a flag",
+            result.get("flag_leads") == [REAL]
+            and result.get("flags") == [],
+            (result, terminal, scan_call),
+        )
+        chk(
+            f"I1b {module}: raw sweep literal cannot finish the job",
+            terminal.get("status") == "no_flag"
+            and scan_call.get("trusted_files_only") == ["report.md"]
+            and scan_call.get("trusted_only") is True
+            and scan_call.get("marker_only") is True,
+            (result, terminal, scan_call),
+        )
+
+    # The upload API preserves the basename in the one-shot job root. Without
+    # an exact trusted-file allowlist, an input literally named
+    # `solver.py.stdout` impersonates a runner artifact and its decoy marker
+    # wins before report.md is considered.
+    reserved_name_decoy = {
+        "solver.py.stdout": "FLAG_CANDIDATE: " + REAL + "\n",
+        "report.md": "No provenance-verified flag was found.\n",
+    }
+    decoy_dir = _job(**{
+        name.replace(".", "__"): text
+        for name, text in reserved_name_decoy.items()
+    })
+    decoy_ns = _load(decoy_dir, flag_format="DH{...}")
+    chk(
+        "I1b reserved-name fixture reaches the legacy trusted marker set",
+        decoy_ns["scan_job_for_flags"](
+            "reserved-name-control", trusted_only=True, marker_only=True,
+        ) == [REAL],
+    )
+    unsafe_rejected = ambiguous_rejected = False
+    try:
+        decoy_ns["scan_job_for_flags"](
+            "reserved-name-escape",
+            trusted_files_only=["../report.md"],
+            marker_only=True,
+        )
+    except ValueError:
+        unsafe_rejected = True
+    try:
+        decoy_ns["scan_job_for_flags"](
+            "reserved-name-ambiguous",
+            extra_files=[],
+            trusted_files_only=["report.md"],
+            marker_only=True,
+        )
+    except ValueError:
+        ambiguous_rejected = True
+    chk(
+        "I1b exact trusted-file mode rejects traversal and additive ambiguity",
+        unsafe_rejected and ambiguous_rejected,
+        (unsafe_rejected, ambiguous_rejected),
+    )
+    for module in ("misc", "forensic"):
+        decoy_pv: dict = {}
+        decoy_flags = decoy_ns["scan_job_for_flags"](
+            "reserved-name-one-shot",
+            trusted_files_only=["report.md"],
+            sandbox_started=False,
+            agent_error=False,
+            trusted_only=True,
+            marker_only=True,
+            provenance_out=decoy_pv,
+        )
+        result, terminal, scan_call = _exercise_finalizer(
+            module,
+            {"result": {"is_error": False}},
+            decoy_flags,
+            job_files=reserved_name_decoy,
+        )
+        chk(
+            f"I1b {module}: uploaded solver.py.stdout decoy cannot finish",
+            decoy_flags == []
+            and decoy_pv.get("tier") == ""
+            and result.get("flags") == []
+            and terminal.get("status") == "no_flag"
+            and scan_call.get("trusted_files_only") == ["report.md"],
+            (decoy_flags, decoy_pv, result, terminal, scan_call),
+        )
+
+    # report.md survives retries/resumes.  A marker written by an earlier
+    # successful turn must not self-launder through a later provider crash;
+    # the report becomes trusted input only after this one-shot invocation
+    # explicitly reports success.
+    for module in ("misc", "forensic"):
+        stale_report = {"report.md": "FLAG_CANDIDATE: " + REAL + "\n"}
+        stale_dir = _job(**stale_report)
+        stale_ns = _load(stale_dir, flag_format="DH{...}")
+        stale_pv: dict = {}
+        stale_flags = stale_ns["scan_job_for_flags"](
+            "stale-one-shot-report",
+            trusted_files_only=[],
+            sandbox_started=False,
+            agent_error=True,
+            trusted_only=True,
+            marker_only=True,
+            provenance_out=stale_pv,
+        )
+        chk(
+            f"I1b {module}: stale report marker is not trusted after a crash",
+            stale_flags == [] and stale_pv.get("tier") == "",
+            (stale_flags, stale_pv),
+        )
+        result, terminal, scan_call = _exercise_finalizer(
+            module,
+            {"result": {"is_error": True}},
+            stale_flags,
+            job_files=stale_report,
+        )
+        chk(
+            f"I1b {module}: crashing one-shot finalizer excludes stale report",
+            result.get("flags") == []
+            and terminal.get("status") == "failed"
+            and scan_call.get("trusted_files_only") == []
+            and scan_call.get("sandbox_started") is False
+            and scan_call.get("agent_error") is True,
+            (result, terminal, scan_call),
+        )
+
+    unknown_dir = _job(**{"report.md": "candidate: " + stale + "\n"})
+    unknown_ns = _load(unknown_dir, flag_format="DH{...}")
+    unknown_flags = unknown_ns["scan_job_for_flags"](
+        "legacy", sandbox_started=None, agent_error=True,
+    )
+    chk(
+        "I1b unknown(None) remains permissive instead of becoming a no-run claim",
+        unknown_flags == [stale],
+        unknown_flags,
+    )
+
+    chk(
+        "pwn/rev production finalizers pass explicit sandbox-attempt and agent-error evidence",
+        COMMON_SOURCE.count('summary["sandbox_started"] = True') == 1
+        and all(
+            "sandbox_started=sandbox_started" in source
+            and "agent_error=agent_err_kind is not None" in source
+            for source in (MODULE_SOURCES["pwn"], MODULE_SOURCES["rev"])
+        ),
+    )
+    for module in ("web", "crypto", "web3"):
+        source = MODULE_SOURCES[module]
+        chk(
+            f"I1b {module}: production finalizer forwards both real summary signals",
+            'sandbox_started = agent_summary.get("sandbox_started")' in source
+            and "sandbox_started=sandbox_started" in source
+            and "agent_error=agent_err_kind is not None" in source,
+        )
+    for module in ("misc", "forensic"):
+        source = MODULE_SOURCES[module]
+        chk(
+            f"I1b {module}: one-shot finalizer forwards evidence and surfaces error",
+            "sandbox_started=sandbox_started" in source
+            and "agent_error=agent_err is not None" in source
+            and 'result["agent_error"] = agent_err' in source
+            and source.count('"stop_reason":') == 3
+            and "classify_stop_reason" in source
+            and "error_kind=agent_err_kind" in source,
+        )
+
+    section("I4 error occurrence is independent of message truthiness")
+    for module in ("pwn", "rev", "web", "crypto", "web3"):
+        artifact_key = (
+            "solver_present" if module in {"rev", "crypto"}
+            else "exploit_present"
+        )
+        for falsey_message in ("", None, 0):
+            summary = {
+                "sandbox": None,
+                "sandbox_started": False,
+                "agent_error": falsey_message,
+                "agent_error_kind": "agent_exception",
+                artifact_key: True,
+            }
+            _result, _terminal, scan_call = _exercise_finalizer(module, summary, [])
+            chk(
+                f"I4 R2 {module}: kind records an error even for message={falsey_message!r}",
+                scan_call.get("agent_error") is True,
+                scan_call,
+            )
+        no_error = {
+            "sandbox": None,
+            "sandbox_started": False,
+            "agent_error": None,
+            "agent_error_kind": None,
+            artifact_key: True,
+        }
+        _result, _terminal, scan_call = _exercise_finalizer(module, no_error, [])
+        chk(
+            f"I4 R2 {module}: absent message and kind remains the no-error control",
+            scan_call.get("agent_error") is False,
+            scan_call,
+        )
+
+    for module in ("misc", "forensic"):
+        _result, _terminal, error_call = _exercise_finalizer(
+            module, {"result": {"is_error": True}}, []
+        )
+        timeout_result, timeout_terminal, timeout_call = _exercise_finalizer(
+            module,
+            {"result": {"is_error": True, "stop_reason": "timeout"}},
+            [],
+        )
+        _result, _terminal, control_call = _exercise_finalizer(
+            module, {"result": {"is_error": False}}, []
+        )
+        chk(
+            f"I4 R2 {module}: explicit one-shot error occurrence is forwarded",
+            error_call.get("agent_error") is True,
+            error_call,
+        )
+        chk(
+            f"I4 R2 {module}: structured one-shot timeout keeps its category",
+            timeout_result.get("agent_error_kind") == "timeout"
+            and timeout_terminal.get("error_kind") == "timeout"
+            and timeout_terminal.get("status") == "failed"
+            and timeout_call.get("agent_error") is True,
+            (timeout_result, timeout_terminal, timeout_call),
+        )
+        chk(
+            f"I4 R2 {module}: explicit one-shot success remains the no-error control",
+            control_call.get("agent_error") is False,
+            control_call,
+        )
+
+    section("sibling matchers share the character class")
+    crypto = (ROOT / "modules" / "crypto" / "pre_analysis.py").read_text()
+    cline = [l for l in crypto.splitlines() if "re.escape(prefix).encode()" in l]
+    chk("crypto's auto-solver matcher exists", len(cline) == 1, cline)
+    chk("REGRESSION: it excludes whitespace too — the format match IS its "
+        "only proof of correctness",
+        cline and r"[^\s}]" in cline[0] and r"[^}\n]" not in cline[0],
+        cline)
+
+    section("a flagless run is not 'finished' — in EVERY module")
+    # The flagless arm now asks `no_flag_status` whether there is a candidate
+    # worth an operator verdict instead of hardcoding the answer. What this
+    # check exists to pin is unchanged and still pinned: a run WITHOUT flags
+    # must not reach "finished". Matching the call rather than the old literal
+    # keeps that guarantee without freezing the branch's implementation.
+    one_shot_status_block = '''        if flags:
+            final_status = "finished"
+        elif agent_err:
+            final_status = "failed"
+        else:
+            final_status = no_flag_status(job_id)'''
+    for mod in ("forensic", "misc"):
+        text = MODULE_SOURCES[mod]
+        chk(f"  {mod} gates its terminal status on flags",
+            one_shot_status_block in text
+            and 'status="finished", stage="done"' not in text,
+            [l.strip() for l in text.splitlines()
+             if "final_status" in l or 'status="finished"' in l][:3])
+
+    section("no regression against every real flag on record")
+    lib = pathlib.Path("/home/yadohyun/HexTech_CTF_TOOL/data/exploits")
+    flags: list[str] = []
+    if lib.is_dir():
+        for mp in lib.glob("*/meta.json"):
+            try:
+                flags += (json.loads(mp.read_text()).get("flags") or [])
+            except Exception:
+                pass
+    if not flags:
+        chk("(exploit library unreadable here — skipped)", True)
+    else:
+        lost = []
+        for fl in flags:
+            m = re.match(r"([A-Za-z][A-Za-z0-9_]{1,15})\{", fl)
+            if not m:
+                continue
+            tight = re.compile(re.escape(m.group(1)) + r"\{[^\s}]{1,256}\}")
+            if not tight.search(fl):
+                lost.append(fl)
+        chk(f"all {len(flags)} stored flags still match the tightened class",
+            not lost, lost[:3])
+        chk("none of them contains whitespace inside the braces",
+            not [f for f in flags if re.search(r"\{[^}]*\s", f)],
+            [f for f in flags if re.search(r"\{[^}]*\s", f)][:2])
+
+    # --- f-string templates are not flags (2026-09-10) --------------------
+    # The whitespace rule rejects marker lines lifted from source because the
+    # rest of the line carries spaces. A placeholder has none, so `{value}`
+    # walked straight through and became job 3a6670825945's ONLY candidate,
+    # while the real answer — later confirmed correct by the operator — sat in
+    # flag_grain.txt at confidence 0.93. An empty candidate list reads as
+    # "nothing found"; one holding `{value}` reads as "something found".
+    # The harness reads source rather than importing (`modules` needs docker),
+    # so pull the one function out of _common.py the same way.
+    import ast as _ast
+    _src = (pathlib.Path(__file__).resolve().parent.parent
+            / "modules" / "_common.py").read_text()
+    _fn = ""
+    for _node in _ast.walk(_ast.parse(_src)):
+        if isinstance(_node, _ast.FunctionDef) and _node.name == "_is_template_artifact":
+            _fn = _ast.get_source_segment(_src, _node) or ""
+    chk("_is_template_artifact exists in _common.py", bool(_fn))
+    # A helper nothing calls is a test that passes while the bug ships. Pin the
+    # wiring too: the live marker accumulator must consult it before filing a
+    # candidate.
+    _acc = ""
+    for _node in _ast.walk(_ast.parse(_src)):
+        if (isinstance(_node, _ast.FunctionDef)
+                and _node.name == "_accumulate_flag_candidates"):
+            _acc = _ast.get_source_segment(_src, _node) or ""
+    chk("the live accumulator calls _is_template_artifact",
+        "_is_template_artifact(" in _acc)
+    _ns = {"re": re}
+    if _fn:
+        exec(_fn, _ns)  # noqa: S102 - the source under test, read from disk
+    _T = _ns.get("_is_template_artifact", lambda _c: False)
+    for _c in ("{value}", "{flag}", "{digest}",
+               "uuuuuuuuuu9{{{digest}", "WXY{{{digest}"):
+        chk(f"template artifact rejected: {_c}", _T(_c))
+    # SHAPED like the real captures this must not reject — an apostrophe and
+    # `!` in the body, a long hex body, a plain word body, a brace-less token —
+    # but invented here. The live flags themselves are never written into a
+    # tracked file; `test_no_committed_secrets.py` treats them as an exact-value
+    # oracle and fails the moment one is, which is how this comment got written.
+    for _c in ("DH{w0n7_r3j3ct_4n_ap0s7r0ph3'_0r_b4ng!}",
+               "DH{plain_word_body}",
+               "ZZZZ{underscored_words_only}",
+               "uuuuuuuuuu9{" + "f" * 64 + "}",
+               "q7m2x9k4p1z8w3v6",
+               "CTF{s}"):
+        chk(f"real flag kept: {_c[:38]}", not _T(_c))
+
+    failed = [r for r in _results if not r]
+    print(
+        f"\n{len(_results)} checks, {len(failed)} failed; "
+        f"mutation={args.mutate or 'none'}"
+    )
+    return 1 if failed else 0
+
+
+
+if __name__ == "__main__":
+    sys.exit(main())

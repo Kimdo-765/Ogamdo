@@ -1,0 +1,3314 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Palette — Windows Terminal "Grok Build" scheme.
+
+   MATCHED verbatim from the scheme: --bg (background/black), --fg
+   (foreground/white), --fg-bright (brightWhite), the six hue pairs and
+   --selection.  The scheme's brightBlack (#6c6c6c) is used as-is only in
+   terminal.html's ANSI table — on a raised chip it drops to 2.96:1, so the
+   UI's dim text is a lifted neutral instead (--fg-dim).
+
+   DERIVED here (the scheme defines no such values): the neutral surface
+   ramp, --orange and the *-soft tiers, the darkened *-solid variants that
+   back opaque buttons carrying light text, and the *-bg hue-tinted banner
+   surfaces (blended onto --bg so alert colours survive a neutral scheme).
+
+   Solid values are pinned by contrast, not by eye: every *-solid that backs
+   light text clears 4.5:1 against --fg-bright, and no pair regresses below
+   what the GitHub-dark palette it replaces achieved.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  /* ── matched: Grok Build ──────────────────────────────────────── */
+  --bg:                  #141414;  /* background / black */
+  --fg:                  #c8c8c8;  /* foreground / white */
+  --fg-bright:           #e1e1e1;  /* brightWhite */
+  --red:                 #f7768e;
+  --red-bright:          #ff899d;
+  --green:               #9ece6a;
+  --green-bright:        #9fe044;
+  --yellow:              #e0af68;  /* also cursorColor */
+  --yellow-bright:       #faba4a;
+  --blue:                #7aa2f7;
+  --blue-bright:         #8db0ff;
+  --purple:              #bb9af7;
+  --purple-bright:       #c7a9ff;
+  --cyan:                #7dcfff;
+  --cyan-bright:         #a4daff;
+  --selection:           #283457;  /* selectionBackground */
+
+  /* ── derived: neutral surface ramp ──────────────────────────────── */
+  --bg-deep:             #0b0b0b;
+  --bg-sunken:           #101010;
+  --sunken-wash:         #10101010;  /* 6% wash on an active block */
+  --surface:             #1b1b1b;
+  --surface-2:           #242424;
+  --grad-hi:             #222222;
+  --grad-mid:            #191919;
+  --grad-lo:             #151515;  /* stays just above --bg, as #11151a did */
+  --line-soft:           #262626;
+  --line:                #333333;
+  --line-hi:             #4a4a4a;
+  --fg-dim:              #787878;  /* lifted off brightBlack — see header */
+  --fg-muted:            #8a8a8a;
+  --fg-max:              #f2f2f2;
+  --on-accent:           #141414;
+
+  /* ── derived: in-family extensions ──────────────────────────────── */
+  --orange:              #ff9e64;
+  --orange-soft:         #ffc79e;
+  --red-soft:            #ffd0d8;
+  --green-soft:          #c3e88d;
+  --yellow-soft:         #f0dfae;
+  --purple-soft:         #ded4f5;
+
+  /* ── derived: darkened solids (opaque bg under light text) ──────── */
+  --blue-solid:          #3d59a1;
+  --blue-solid-hi:       #4360a6;
+  --blue-solid-alt:      #33497f;
+  --blue-solid-deep:     #223350;
+  --blue-solid-deep-hi:  #2f4770;
+  --green-solid:         #456d2f;
+  --green-solid-hi:      #4d7c34;
+  --teal-solid:          #2e6d5f;
+  --yellow-solid:        #7b5e29;
+  --orange-solid:        #b56b3c;
+  --red-solid:           #9c4754;
+  --red-solid-hi:        #8f3f4c;
+  --red-solid-deep:      #5c2f39;
+  --red-solid-deep-hi:   #8a3d4a;
+  --purple-solid:        #5b4a94;
+  --purple-solid-hi:     #6e569d;
+
+  /* ── derived: hue-tinted banner surfaces ────────────────────────── */
+  --red-bg:              #3b2529;
+  --red-bg-deep:         #261c1e;
+  --yellow-bg:           #372e22;
+  --yellow-bg-lo:        #2f281f;
+  --orange-bg:           #3c2b22;
+  --orange-bg-hi:        #513829;
+  --purple-bg:           #2f2938;
+  --purple-bg-lo:        #232028;
+  --green-bg:            #2a3222;
+  --green-bg-lo:         #22271d;
+  --cyan-bg:             #1e272c;
+  --blue-bg:             #1e222b;
+
+  /* ── derived: alpha washes and hairlines ────────────────────────── */
+  --blue-tint:           #7aa2f722;
+  --blue-fill:           #7aa2f73a;
+  --blue-line:           #7aa2f755;
+  --red-tint:            #f7768e22;
+  --red-line:            #f7768e55;
+  --red-line-hi:         #f7768e99;
+  --green-tint:          #9ece6a22;
+  --green-line:          #9ece6a5e;
+  --green-soft-tint:     #c3e88d22;
+  --green-soft-line:     #c3e88d55;
+  --green-bright-line:   #9fe04466;
+  --yellow-wash:         #e0af6812;
+  --yellow-wash-hi:      #e0af6820;
+  --yellow-fill:         #e0af6826;
+  --yellow-tint:         #e0af6833;
+  --yellow-line:         #e0af6866;
+  --purple-tint:         #bb9af71a;
+  --purple-fill:         #bb9af733;
+  --purple-line:         #bb9af766;
+  --purple-bright-tint:  #c7a9ff22;
+  --purple-bright-line:  #c7a9ff55;
+  --cyan-tint:           #7dcfff22;
+  --cyan-line:           #7dcfff5e;
+  --orange-tint:         #ff9e6422;
+  --orange-line:         #ff9e645e;
+  --grey-tint:           #8a8a8a22;
+  --grey-line:           #8a8a8a55;
+}
+
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg-bright);
+}
+header {
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--line);
+}
+header h1 { margin: 0 0 0.5rem 0; font-size: 1.25rem; }
+/* Product name + tagline on one line. The tagline is a <span> inside the <h1>
+   rather than a sibling so it cannot wrap away from the name in the flex hbar,
+   and so a screen reader still reads one heading. */
+header h1 .brand-sub {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+nav { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.tab {
+  background: var(--surface-2);
+  color: var(--fg-bright);
+  border: 1px solid var(--line);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tab.active { background: var(--blue-solid); border-color: var(--blue-solid); }
+.tab[disabled] { opacity: 0.4; cursor: not-allowed; }
+/* ONE column. This was `1fr 1fr` because #jobs was a permanent second child
+   sitting beside whichever module panel was active. The jobs list moved into
+   the Dashboard panel, so a two-column grid would now leave every panel
+   stranded in the left half with dead space to its right. */
+main { padding: 1.5rem 2rem; display: grid; grid-template-columns: 1fr; gap: 2rem; }
+.panel { display: none; }
+.panel.active { display: block; }
+form { display: flex; flex-direction: column; gap: 0.75rem; }
+label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; }
+label.checkbox { flex-direction: row; align-items: center; gap: 0.5rem; }
+
+/* --- module forms: two columns where the fields are short ------------------
+   Every module form is fourteen to seventeen labels, and a single column made
+   each one a long scroll where a `select` or a number input owned a whole row
+   to itself. The fields that are actually WIDE — a file picker, a textarea, a
+   target URL — keep the full width; everything else pairs up.
+   Selected with :has(), which this stylesheet already relies on (see
+   label.capture-flag-toggle), so no markup had to change and every form id,
+   field name and listener is untouched.
+   The panel scope matters: #settings-form has its own pane layout and the
+   player cards are their own thing. */
+.panel > form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 0.7rem 1.1rem;
+  align-items: start;
+}
+/* Anything that needs room, plus the things that read as their own block. */
+.panel > form > label:has(textarea),
+.panel > form > label:has(input[type="file"]),
+.panel > form > label:has(input[type="url"]),
+.panel > form > label.job-tag-field,
+.panel > form > label.capture-flag-toggle,
+.panel > form > fieldset,
+.panel > form > .form-actions,
+.panel > form > .form-note,
+.panel > form > hr { grid-column: 1 / -1; }
+
+/* A checkbox is a line, not a stacked pair, so it should not claim the height
+   of a labelled input beside it. */
+.panel > form > label.checkbox { align-self: center; min-height: 2.2rem; }
+
+/* The small print under a field is the reason it exists; it should not make
+   the field twice as tall as its neighbour. */
+.panel > form > label > small { line-height: 1.45; }
+
+
+@media (max-width: 780px) {
+  .panel > form { grid-template-columns: 1fr; }
+}
+
+/* Settings: Claude vs Grok provider picker */
+.provider-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 1rem 1rem;
+  margin: 0 0 0.5rem;
+  background: var(--bg-sunken);
+}
+.provider-fieldset legend {
+  padding: 0 0.4rem;
+  color: var(--fg-bright);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.provider-radios {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+@media (max-width: 640px) {
+  .provider-radios { grid-template-columns: 1fr; }
+}
+.provider-card {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.provider-card:hover { border-color: var(--blue-line); }
+.provider-card:has(input:checked) {
+  border-color: var(--blue);
+  background: var(--blue-tint);
+  box-shadow: 0 0 0 1px var(--blue-fill) inset;
+}
+.provider-card input[type="radio"] {
+  margin-top: 0.2rem;
+  accent-color: var(--blue);
+}
+.provider-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.provider-card-body strong { color: var(--fg-bright); font-size: 0.95rem; }
+.provider-card-body small { color: var(--fg-muted); font-size: 0.8rem; }
+.provider-card-body .provider-auth-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 0.2rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.provider-card-body .provider-auth-badge.auth-ready {
+  color: var(--green);
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+}
+.provider-card-body .provider-auth-badge.auth-missing {
+  color: var(--fg-muted);
+}
+.provider-settings-block {
+  border: 1px solid var(--surface-2);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  opacity: 0.55;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.provider-settings-block.provider-active {
+  opacity: 1;
+  border-color: var(--line);
+  background: var(--sunken-wash);
+}
+/* The local runtime is not one of the three job backends, so it never becomes
+   `provider-active` and would sit dimmed forever. It does not compete with
+   that choice — it is a role target — so it reads at full strength always. */
+.provider-settings-block.provider-standalone {
+  opacity: 1;
+  border-color: var(--line);
+}
+.provider-block-title {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* "Capture remote flag" gate — a tinted row so the success-bar override reads as
+   a deliberate requirement rather than a stray option. */
+label.capture-flag-toggle {
+  flex-wrap: wrap;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--yellow-tint);
+  border-radius: 6px;
+  background: var(--yellow-wash);
+}
+label.capture-flag-toggle:hover { border-color: var(--yellow-bright); background: var(--yellow-wash-hi); }
+label.capture-flag-toggle:has(.capture-remote-flag-cb:checked) {
+  border-color: var(--yellow-bright);
+  background: var(--yellow-fill);
+}
+.capture-flag-note { color: var(--fg-muted); font-size: 0.8rem; flex-basis: 100%; margin-left: 1.6rem; }
+input[type="file"], input[type="url"], input[type="text"], input[type="password"],
+textarea, select {
+  background: var(--surface);
+  color: var(--fg-bright);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-family: inherit;
+}
+/* Multi-target list — rows of host:port inputs grown/shrunk with + / ×. */
+.target-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.target-rows { display: flex; flex-direction: column; gap: 0.3rem; }
+.target-row { display: flex; gap: 0.3rem; align-items: stretch; }
+.target-row .target-input {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+.target-remove {
+  flex: 0 0 auto;
+  width: 1.9rem;
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 1rem;
+}
+.target-remove:hover { color: var(--red); border-color: var(--red); }
+.target-add {
+  align-self: flex-start;
+  background: transparent;
+  color: var(--green);
+  border: 1px dashed var(--green-line);
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.target-add:hover { background: var(--green-tint); border-style: solid; }
+/* "+N more" badge next to the primary target in the job detail header. */
+.target-more {
+  display: inline-block;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: var(--blue-fill);
+  color: var(--blue);
+  cursor: help;
+}
+.hbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.cost-banner {
+  display: flex; align-items: center; gap: 0.75rem;
+  font-size: 0.85rem; color: var(--fg-muted);
+}
+#cost-total { color: var(--blue); font-weight: 600; }
+
+/* Operator "used / budget" pill (top bar). Color escalates with fraction
+   consumed: default (under 80%), amber (>=80%), red (>=100%). */
+.usage-pill {
+  font-weight: 600; color: var(--green);
+  border: 1px solid var(--green-solid); border-radius: 10px;
+  padding: 0.05rem 0.5rem; white-space: nowrap;
+}
+.usage-pill[hidden] { display: none; }
+.usage-pill--warn { color: var(--yellow); border-color: var(--yellow-solid); }
+.usage-pill--over { color: var(--red); border-color: var(--red-solid); }
+
+/* Account rate-limit status chip (subscription usage window). */
+.rl-chip {
+  font-weight: 600; border-radius: 10px;
+  padding: 0.05rem 0.5rem; white-space: nowrap;
+}
+.rl-chip[hidden] { display: none; }
+.rl-chip--ok { color: var(--green); border: 1px solid var(--green-solid); }
+.rl-chip--warn { color: var(--yellow); border: 1px solid var(--yellow-solid); }
+.rl-chip--rejected { color: var(--red); border: 1px solid var(--red-solid); }
+.logout {
+  background: transparent; color: var(--fg-muted); border: 1px solid var(--line);
+  padding: 0.2rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+}
+.logout:hover { color: var(--fg-bright); border-color: var(--blue); }
+.delete-btn {
+  background: var(--red-solid); color: var(--fg-bright); border: 0;
+  padding: 0.15rem 0.5rem; border-radius: 4px; cursor: pointer;
+  font-size: 0.75rem; margin-left: 0.5rem;
+}
+.jobs-toolbar {
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.bulk-delete-btn {
+  background: var(--red-solid-hi); color: var(--fg-bright); border: 0;
+  padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem;
+}
+.bulk-delete-btn:hover { background: var(--red-solid); }
+
+.run-now-btn {
+  background: var(--blue-solid); color: var(--fg-bright); border: 0;
+  padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem; margin-right: 0.5rem;
+}
+.run-now-btn:hover { background: var(--blue-solid-hi); }
+.run-now-btn:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+
+.retry-btn {
+  background: var(--purple-solid); color: var(--fg-bright); border: 0;
+  padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem; margin-right: 0.5rem;
+}
+.retry-btn:hover { background: var(--purple-solid-hi); }
+.retry-btn:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+/* Continue-in-place: teal accent so it reads as "resume, not a fresh retry". */
+.retry-btn.continue-open-btn { background: var(--teal-solid); }
+.retry-btn.continue-open-btn:hover { background: var(--green-solid-hi); }
+.continue-form .continue-submit { background: var(--teal-solid); }
+.continue-form .continue-submit:hover { background: var(--green-solid-hi); }
+/* "fresh context" toggle — a pill chip that mirrors the purple retry tone.
+   Native checkbox is visually hidden; .fresh-box is the custom check. */
+.fresh-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; color: var(--purple); cursor: pointer;
+  margin-right: 0.5rem; user-select: none;
+  padding: 0.32rem 0.7rem; border-radius: 999px;
+  border: 1px solid var(--purple-solid); background: var(--purple-tint);
+  transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+  vertical-align: middle;
+}
+.fresh-toggle:hover { background: var(--purple-fill); border-color: var(--purple); }
+/* visually-hidden but still focusable/clickable native input */
+.fresh-toggle .fresh-ctx-cb {
+  position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none;
+}
+.fresh-box {
+  width: 15px; height: 15px; border-radius: 4px;
+  border: 1.5px solid var(--purple); background: transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; transition: background .15s, border-color .15s;
+}
+.fresh-box::after {
+  content: "✓"; font-size: 11px; line-height: 1; font-weight: 700;
+  color: var(--fg-bright); opacity: 0; transform: scale(0.5); transition: opacity .15s, transform .15s;
+}
+.fresh-label { white-space: nowrap; }
+/* checked state — :has() for modern engines, .checked class as JS fallback */
+.fresh-toggle:has(.fresh-ctx-cb:checked),
+.fresh-toggle.checked {
+  background: var(--purple-solid); border-color: var(--purple); color: var(--fg-bright);
+  box-shadow: 0 0 0 2px var(--purple-fill), 0 0 8px var(--purple-line);
+}
+.fresh-toggle:has(.fresh-ctx-cb:checked) .fresh-box,
+.fresh-toggle.checked .fresh-box {
+  background: var(--green-solid-hi); border-color: var(--green);
+}
+.fresh-toggle:has(.fresh-ctx-cb:checked) .fresh-box::after,
+.fresh-toggle.checked .fresh-box::after {
+  opacity: 1; transform: scale(1);
+}
+/* keyboard focus ring */
+.fresh-toggle:has(.fresh-ctx-cb:focus-visible) {
+  box-shadow: 0 0 0 2px var(--purple);
+}
+
+.retry-panel {
+  background: var(--surface);
+  border: 1px solid var(--purple-solid);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+}
+.retry-panel h4 {
+  margin: 0 0 0.3rem 0;
+  color: var(--purple); font-size: 0.8rem;
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
+.retry-panel .stage {
+  font-size: 0.75rem; color: var(--fg-muted); margin-bottom: 0.4rem;
+}
+/* Terminal states, toggled by class rather than element.style: assigning a
+   var() reference through the CSSOM is engine-dependent, the cascade is not. */
+.retry-panel .stage .dot.dot--error { background: var(--red); animation: none; }
+.retry-panel .stage .dot.dot--done  { background: var(--green-bright); animation: none; }
+#oauth-status { color: var(--fg-muted); }
+#oauth-status.oauth-ok { color: var(--green); }
+.retry-panel .stage .dot {
+  display: inline-block; width: 0.5rem; height: 0.5rem;
+  border-radius: 50%; background: var(--purple); margin-right: 0.3rem;
+  animation: blink 1s ease-in-out infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+.retry-panel pre {
+  background: var(--bg-sunken); border-radius: 4px; padding: 0.5rem;
+  margin: 0; font-size: 0.78rem; max-height: 220px;
+  overflow-y: auto; white-space: pre-wrap; color: var(--fg);
+}
+.retry-panel.retry-panel-error {
+  border-color: var(--red);
+  background: var(--red-bg);
+}
+.retry-panel.retry-panel-error h4 { color: var(--red-bright); }
+.retry-panel.retry-panel-error .stage-text { color: var(--red-soft); }
+.retry-panel.retry-panel-error pre {
+  background: var(--red-bg-deep);
+  border: 1px solid var(--red-line);
+  color: var(--red-soft);
+}
+
+/* Soft-timeout decision banner: appears when the worker watchdog has fired
+   and the user must pick continue / kill. Styled as a yellow alert. */
+.timeout-banner {
+  background: var(--yellow-bg);
+  border: 1px solid var(--yellow);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  margin: 0.6rem 0;
+  animation: timeoutPulse 2s ease-in-out infinite;
+}
+@keyframes timeoutPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 175, 104, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(224, 175, 104, 0.18); }
+}
+.timeout-banner h4 {
+  margin: 0 0 0.3rem 0;
+  font-size: 0.88rem;
+  color: var(--yellow-bright);
+  letter-spacing: 0.3px;
+}
+.timeout-banner .timeout-msg {
+  font-size: 0.82rem; color: var(--yellow-soft); margin-bottom: 0.5rem;
+}
+.timeout-banner .timeout-actions {
+  display: flex; gap: 0.5rem; flex-wrap: wrap;
+}
+.timeout-continue-btn {
+  background: var(--blue-solid); color: var(--fg-bright); border: 0;
+  padding: 0.4rem 0.85rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem;
+}
+.timeout-continue-btn:hover { background: var(--blue-solid-hi); }
+.timeout-continue-btn:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+.timeout-kill-btn {
+  background: var(--red-solid-hi); color: var(--fg-bright); border: 0;
+  padding: 0.4rem 0.85rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem;
+}
+.timeout-kill-btn:hover { background: var(--red-solid); }
+.timeout-kill-btn:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+
+/* Pure-stop button (halt-but-keep) — danger red, distinct from the purple
+   retry/resume buttons so it reads as "this ends the run". */
+.stop-job-btn {
+  background: var(--red-solid-hi); color: var(--fg-bright); border: 0;
+  padding: 0.4rem 0.85rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600;
+}
+.stop-job-btn:hover { background: var(--red-solid); }
+.stop-job-btn:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+
+/* Forensic log-miner findings panel */
+.log-findings-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.5rem 0;
+}
+.log-findings-panel h4 {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.78rem; color: var(--fg-muted);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.lf-chips {
+  display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem;
+}
+.lf-chip {
+  display: inline-block; padding: 0.15rem 0.55rem;
+  border-radius: 999px; font-size: 0.75rem;
+  border: 1px solid transparent;
+}
+.lf-chip.hit {
+  background: var(--yellow-bg); color: var(--yellow-bright); border-color: var(--yellow-line);
+}
+.lf-chip.zero {
+  background: var(--bg-sunken); color: var(--fg-dim); border-color: var(--line);
+}
+
+/* Live-fire's lifecycle status (finished) and deployability verdict are two
+   different facts. The banner keeps READY visually distinct from the
+   diagnostic-only UNVERIFIED state and always carries evidence provenance. */
+.live-fire-outcome {
+  border: 1px solid var(--line-hi);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.7rem 0.85rem;
+  margin: 0.5rem 0;
+}
+.live-fire-outcome > div:first-child {
+  display: flex; align-items: center; gap: 0.65rem;
+}
+.live-fire-outcome strong { letter-spacing: 0.06em; }
+.live-fire-outcome span { color: var(--fg-muted); font-size: 0.78rem; }
+.live-fire-outcome small { display: block; color: var(--fg-muted); margin-top: 0.25rem; }
+.live-fire-outcome.ready { border-left-color: var(--green-bright); }
+.live-fire-outcome.ready strong { color: var(--green-bright); }
+.live-fire-outcome.unverified { border-left-color: var(--yellow-bright); }
+.live-fire-outcome.unverified strong { color: var(--yellow-bright); }
+.live-fire-outcome.pending { border-left-color: var(--blue-bright); }
+.live-fire-outcome.pending strong { color: var(--blue-bright); }
+/* patched / announced. Neutral until it is met — a round is not "wrong" for
+   being half done, it is just not finished. */
+.live-fire-count {
+  margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600;
+  border: 1px solid var(--line-hi); border-radius: 5px; padding: 0 0.4rem;
+}
+.live-fire-count.is-met { border-color: var(--green, #2f855a); color: var(--green, #2f855a); }
+.live-fire-downloads { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+.live-fire-downloads a {
+  border: 1px solid var(--line-hi); border-radius: 5px;
+  background: var(--surface-2); padding: 0.3rem 0.55rem;
+  text-decoration: none;
+}
+
+/* Interim patch snapshots. Visible while the job is still running, which is
+   the entire point — a defence tick is short and the job is not. Styled
+   quieter than the terminal downloads above so the two are never confused:
+   these are unverified by construction. */
+.live-fire-progress { margin-top: 0.7rem; border-top: 1px solid var(--line); padding-top: 0.55rem; }
+/* The heading carries a button, so it is a flex row rather than a float —
+   a floated button drops out of flow and the subtitle wrapped under it. */
+.live-fire-progress-head {
+  display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap;
+  font-size: 0.85rem; font-weight: 600; margin-bottom: 0.45rem;
+}
+.live-fire-progress-head small { flex: 1 1 auto; min-width: 0; }
+.live-fire-progress-head small { font-weight: 400; color: var(--fg-muted); }
+/* THREE LINES, ALIGNED — not a wrapping flex row.
+   `flex-wrap` let the findings push themselves onto their own line and the
+   feedback controls onto two more, so five versions read as a wall of text
+   with nothing lining up between them. A grid with FIXED leading columns puts
+   the timestamp and the version at the same x on every row, and the two
+   full-width cells below give the findings and the controls one line each. */
+.live-fire-snap {
+  display: grid;
+  grid-template-columns: 8.6rem 2rem auto auto auto 1fr;
+  align-items: center;
+  gap: 0.28rem 0.5rem;
+  padding: 0.4rem 0; font-size: 0.82rem;
+}
+.live-fire-snap-why,
+.live-fire-blocked { grid-column: 1 / -1; }
+.live-fire-snap + .live-fire-snap { border-top: 1px dotted var(--line); }
+/* A new version arriving should read as a file appearing in a list, not as
+   the list redrawing. One short fade — the class is removed after it plays so
+   a later reconcile never replays it on an old row. Honoured only where the
+   viewer wants motion. */
+@keyframes live-fire-snap-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: none; }
+}
+.live-fire-snap.is-new { animation: live-fire-snap-in .45s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .live-fire-snap.is-new { animation: none; }
+}
+.live-fire-snap-when { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.live-fire-snap-dl {
+  border: 1px solid var(--line-hi); border-radius: 5px;
+  background: var(--surface-2); padding: 0.18rem 0.45rem; text-decoration: none;
+  white-space: nowrap;
+}
+/* Said on every row, not once above it: these are read one at a time, by
+   someone deciding what to upload with a clock running. */
+.live-fire-snap-unverified {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: .04em;
+  color: var(--amber, #b7791f); border: 1px solid currentColor;
+  border-radius: 4px; padding: 0 0.3rem;
+}
+/* One line, always. The full `class @ path` list is in the title — a panel
+   that grows to three lines per version stops being scannable. */
+.live-fire-snap-why {
+  color: var(--fg-muted); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.live-fire-snap-ver {
+  font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--fg); font-size: .86em;
+}
+/* The round's own number. It sits at the end of the row it describes because
+   the operator fills it in AFTER uploading that exact file. */
+/* The controls sit on ONE line. They used to stack because the SLA label was
+   a <label> nested inside another <label> — invalid, and browsers break the
+   line rather than render it. */
+.live-fire-blocked {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  font-size: 0.78rem; color: var(--fg-muted); white-space: nowrap;
+}
+.live-fire-blocked > label {
+  display: inline-flex; align-items: center; gap: 0.3rem; margin: 0;
+}
+.live-fire-blocked-input {
+  width: 4.5rem; padding: 0.12rem 0.3rem; font-size: 0.8rem;
+  border: 1px solid var(--line-hi); border-radius: 4px;
+  background: var(--surface); color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.live-fire-blocked-save { padding: 0.12rem 0.4rem; font-size: 0.75rem; }
+/* A change nothing in the report accounts for. Not an error — the patch may
+   be perfectly good — but the operator is about to upload it, so it says so. */
+.live-fire-snap-unexplained {
+  font-size: .75rem; white-space: nowrap;
+  color: var(--amber, #b7791f); border: 1px solid currentColor;
+  border-radius: 4px; padding: 0 0.3rem;
+}
+.live-fire-snap-clear {
+  font-variant-numeric: tabular-nums; font-size: .8em;
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3rem;
+  white-space: nowrap;
+}
+/* An unscored version is a thing to do, so the prompt stays visible until it
+   is done; a scored one stops asking. */
+.live-fire-blocked input::placeholder { color: var(--amber, #b7791f); opacity: 1; }
+.live-fire-blocked.is-scored input::placeholder { color: var(--fg-muted); }
+.live-fire-snap.is-error .live-fire-snap-why { color: var(--red, #c53030); }
+
+/* Job description block (above the retry/run buttons) */
+.description-block {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.description-block summary {
+  cursor: pointer; font-size: 0.75rem;
+  color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.5px;
+  user-select: none;
+}
+.description-block summary:hover { color: var(--fg); }
+.description-retry-chip {
+  display: inline-block; background: var(--purple-fill); color: var(--purple);
+  border: 1px solid var(--purple-solid); border-radius: 999px;
+  padding: 0 0.4rem; font-size: 0.65rem;
+  margin-left: 0.25rem; letter-spacing: 0.3px;
+}
+.description-text {
+  background: var(--bg-sunken); border: 1px solid var(--surface-2);
+  border-radius: 4px; padding: 0.5rem;
+  margin: 0.4rem 0 0 0;
+  font-size: 0.82rem; color: var(--fg);
+  white-space: pre-wrap; word-break: break-word;
+  font-family: inherit;
+}
+.description-hint {
+  margin-top: 0.4rem;
+  border: 1px solid var(--purple-solid); border-radius: 4px;
+  padding: 0.4rem 0.5rem; background: var(--purple-bg-lo);
+}
+.description-hint-label {
+  font-size: 0.68rem; color: var(--purple);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.description-hint .description-text {
+  background: transparent; border: 0; padding: 0.2rem 0 0 0;
+  color: var(--purple-soft);
+}
+
+/* Manual-hint inline form (opens when "✏ Retry with my hint" is clicked) */
+.retry-manual-form {
+  background: var(--bg-sunken);
+  border: 1px solid var(--purple-solid);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.5rem 0;
+  display: flex; flex-direction: column; gap: 0.45rem;
+}
+.retry-manual-label {
+  font-size: 0.75rem; color: var(--purple);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.retry-manual-form textarea {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface); color: var(--fg-bright);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.5rem; font-family: inherit; font-size: 0.85rem;
+  resize: vertical; min-height: 5.5rem;
+}
+.retry-manual-form textarea:focus {
+  outline: none; border-color: var(--purple);
+}
+.retry-manual-form textarea.invalid {
+  border-color: var(--red-solid); animation: shake 0.3s ease-in-out;
+}
+.retry-manual-form input.retry-manual-target {
+  width: 100%; box-sizing: border-box;
+  background: var(--surface); color: var(--fg-bright);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+.retry-manual-form input.retry-manual-target:focus {
+  outline: none; border-color: var(--purple);
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+.retry-manual-row {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+}
+.retry-manual-row small { color: var(--fg-muted); font-size: 0.72rem; }
+.retry-manual-row code {
+  background: var(--surface); padding: 0.05rem 0.3rem;
+  border-radius: 3px; font-size: 0.7rem;
+}
+.retry-manual-submit {
+  background: var(--purple-solid); color: var(--fg-bright); border: 0;
+  padding: 0.35rem 0.85rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.82rem;
+}
+.retry-manual-submit:hover { background: var(--purple-solid-hi); }
+.retry-manual-submit:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+.retry-manual-cancel {
+  background: var(--surface-2); color: var(--fg); border: 1px solid var(--line);
+  padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.82rem;
+}
+.retry-manual-cancel:hover { background: var(--line); }
+/* Stop & resume button — danger-ish color so it's visibly distinct
+   from the green/purple retry buttons. */
+.retry-stop-resume-btn {
+  background: var(--red-solid-hi);
+}
+.retry-stop-resume-btn:hover { background: var(--red-solid); }
+.stop-resume-form { border-color: var(--yellow); }
+.stop-resume-form .retry-manual-label { color: var(--yellow-bright); }
+.stop-resume-submit {
+  background: var(--red-solid-hi);
+}
+.stop-resume-submit:hover { background: var(--red-solid); }
+.stop-resume-submit:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: wait; }
+
+.flag-banner {
+  background: var(--green-bg);
+  border: 1px solid var(--green-solid);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.6rem 0;
+}
+.flag-banner h4 {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.85rem;
+  color: var(--green-bright);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+/* [FLAG?] — tentative candidate box (amber), distinct from the confirmed
+   green Flag-found banner. Surfaced mid-run for fast CTF submission. */
+.flag-cand-banner {
+  background: var(--yellow-bg);
+  border: 1px dashed var(--yellow);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.6rem 0;
+}
+.flag-cand-banner h4 {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.8rem;
+  color: var(--yellow-bright);
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.flag-cand-banner h4 small { color: var(--fg-muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.flag-cand-banner .flag-q { font-weight: 700; letter-spacing: 0.5px; }
+.flag-cand-banner code { color: var(--yellow-bright); }
+.flag-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+.flag-row code {
+  background: var(--bg-sunken); padding: 0.3rem 0.5rem;
+  border-radius: 4px; flex: 1; font-size: 0.95rem;
+  color: var(--orange); user-select: all; word-break: break-all;
+}
+.copy-btn {
+  background: var(--green-solid); color: var(--fg-bright); border: 0;
+  padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer;
+  font-size: 0.8rem; min-width: 60px;
+}
+.copy-btn:hover { background: var(--green-solid-hi); }
+.copy-btn.copied { background: var(--blue-solid-alt); }
+/* Small inline "copy job id" button (⧉) next to a job id in list cards
+   and the detail header. Subtle until hovered. */
+.copy-jobid-btn {
+  background: transparent; border: 0; cursor: pointer; color: var(--fg-muted);
+  font-size: 0.85em; padding: 0 0.25rem; margin-left: 0.15rem;
+  line-height: 1; vertical-align: baseline; border-radius: 3px;
+}
+.copy-jobid-btn:hover { color: var(--fg); background: var(--line); }
+.copy-jobid-btn.copied { color: var(--green); }
+.jobid-text { user-select: all; }
+.flag-del-btn, .flag-keep-btn {
+  border: 0; padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer;
+  font-size: 0.8rem; white-space: nowrap; color: var(--fg-bright);
+}
+.flag-del-btn { background: var(--red-solid-deep); }
+.flag-del-btn:hover { background: var(--red-solid-deep-hi); }
+.flag-keep-btn { background: var(--blue-solid-deep); }
+.flag-keep-btn:hover { background: var(--blue-solid-deep-hi); }
+.flag-del-btn:disabled, .flag-keep-btn:disabled { opacity: 0.5; cursor: default; }
+.flag-hint {
+  display: block; color: var(--fg-muted); margin: 0.1rem 0 0.5rem; font-size: 0.8rem;
+}
+.refusal-banner {
+  background: var(--orange-bg-hi);
+  border: 1px solid var(--orange-solid);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0.6rem 0;
+  font-size: 0.9rem;
+}
+.refusal-banner h4 {
+  margin: 0 0 0.3rem 0; color: var(--orange); font-size: 0.85rem;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.refusal-banner code {
+  background: var(--bg-sunken); padding: 0.1rem 0.35rem; border-radius: 3px;
+}
+/* Operator-written job tag. Sits FIRST on a job row, so it is styled to read
+   as a label rather than a status: outlined, not solid, because .flag-pill's
+   solid green is the row's one "something happened" signal and a tag that
+   competes with it costs more than it gives. max-width + ellipsis keeps a
+   64-char tag from pushing the status pill off a narrow sidebar. */
+.tag-pill {
+  display: inline-block; background: var(--surface); color: var(--fg);
+  font-size: 0.7rem; padding: 0.05rem 0.4rem; border-radius: 3px;
+  border: 1px solid var(--line);
+  vertical-align: middle;
+  max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The job-detail chip variant needs no cap — the modal is wide and the chip
+   rules already ellipsis at 30rem. */
+.job-tag-field input { font-family: inherit; }
+.flag-pill {
+  display: inline-block; background: var(--green-solid); color: var(--fg-bright);
+  font-size: 0.7rem; padding: 0.05rem 0.35rem; border-radius: 3px;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+button[type="submit"], #refresh-jobs {
+  background: var(--green-solid);
+  color: var(--fg-bright);
+  border: 0;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  align-self: flex-start;
+}
+.form-actions button[type="submit"] { align-self: auto; }
+.form-actions button[type="reset"] {
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1px solid var(--line);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.form-actions button[type="reset"]:hover {
+  color: var(--fg);
+  border-color: var(--blue);
+}
+/* A GRID, not a list. With several jobs running the question is "which one
+   should I look at", and a single column answers it by scroll position — the
+   oldest thing on screen is whatever is nearest the top. Tiles put the whole
+   fleet in one view so the manager agent's numbers can be compared at a
+   glance, which is the only reason those numbers are worth computing.
+   auto-fill rather than a fixed count: the sidebar is resizable and a hard
+   3-up wraps into one column the moment it narrows. */
+#jobs-list {
+  list-style: none; padding: 0; margin: 1rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+#jobs-list li {
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  /* margin-bottom removed: `gap` owns the spacing now, and keeping both left
+     a double gutter between rows and none between columns. */
+}
+#jobs-list li.selected { border-color: var(--blue-solid); }
+
+/* ------------------------------------------------- manager agent assessment
+   Hidden until the manager has actually written one. A row with an empty bar
+   and "—%" reads as "assessed, and the answer is nothing", which is a
+   different claim from "not assessed". */
+.row-manager { margin-top: 0.4rem; font-size: 0.72rem; }
+.row-manager[hidden] { display: none; }
+.mgr-head {
+  display: flex; align-items: baseline; gap: 0.35rem;
+  color: var(--fg-muted); margin-bottom: 0.2rem;
+}
+.mgr-prob { font-weight: 700; font-size: 0.82rem; }
+/* Three bands, and the thresholds are deliberately pessimistic: a job is not
+   "green" until the assessment is genuinely high, because the colour is what
+   an operator reads before the number. */
+.mgr-prob.p-lo   { color: var(--red-solid, #cc4a4a); }
+.mgr-prob.p-mid  { color: var(--amber, #d79921); }
+.mgr-prob.p-hi   { color: var(--green-solid, #689d6a); }
+.mgr-stage { margin-left: auto; font-variant-numeric: tabular-nums; }
+.mgr-bar {
+  height: 4px; border-radius: 2px; background: var(--line); overflow: hidden;
+}
+.mgr-fill {
+  display: block; height: 100%; width: 0;
+  background: var(--blue-solid); transition: width 0.4s ease;
+}
+
+/* ---------------------------------------------------------------- Dashboard
+   Memory rings are hand-rolled SVG: two concentric strokes and a
+   stroke-dasharray. No charting library — index.html already pulls two scripts
+   from a CDN and a third for four donuts would be the largest dependency in
+   the app by an order of magnitude. */
+.dash-mem {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem 2rem;
+  padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+}
+.dash-mem-host { display: flex; align-items: center; gap: 1rem; }
+.dash-mem-caption strong { font-size: 0.95rem; }
+.dash-sub { font-size: 0.78rem; color: var(--fg-muted); }
+/* A GRID, not a wrapping flex row. With two slots the row was fine; at twelve
+   it became one long strip that pushed the tiles off-screen and made the set
+   unreadable at a glance. auto-fill + a fixed minimum means the tiles align in
+   real columns and the count per row follows the panel width, so 12 slots read
+   as a block you can scan rather than a queue you have to scroll. */
+.dash-rings {
+  display: grid; gap: 1rem 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  align-items: start;
+  padding-left: 1.5rem; border-left: 1px solid var(--line); flex: 1 1 320px;
+}
+.dash-ring { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; width: 5.5rem; }
+/* Container tiles only. The tile has to hold "152 MiB / 2.0 GiB" — the
+   usage/cap pair is 15-17 characters, and the fixed 5.5rem above fitted the
+   short ones and broke the long ones AFTER the slash, so "4.0" and "GiB"
+   landed on separate lines and read as two unrelated numbers. `nowrap` on the
+   value is the actual guarantee (no font can wrap it); the floor is only so
+   the tiles stay an even grid at the sizes that occur in practice, and `auto`
+   lets a tile grow rather than overflow if a cap ever prints as "unlimited".
+   Scoped to .dash-rings because #dash-host-ring is a .dash-ring too — it
+   carries a 92px svg and no value line, and widening it would move the Host
+   RAM donut away from its caption for no reason. */
+.dash-rings .dash-ring { width: auto; min-width: 7rem; }
+.dash-ring-label {
+  font-size: 0.7rem; color: var(--fg-muted); text-align: center;
+  max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Scoped to the ring: #dash-host-detail is also a .dash-sub and it lives in a
+   wide caption where wrapping is correct. Tabular figures keep the tile from
+   twitching as the digits change under the 15s poll. */
+.dash-ring .dash-sub { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Which job is on this slot. A wall of identical `worker-N` tiles cannot
+   answer "where is my job running?", which is the question the dashboard gets
+   asked. Monospace + tabular figures so the 8-char ids line up down a column
+   and a changed slot is visible without reading. `idle` is deliberately muted
+   and unboxed: an empty slot is the normal state and must not draw the eye the
+   way a running job does. */
+.dash-ring-job {
+  font-size: 0.68rem; font-family: var(--mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  padding: 0.05rem 0.35rem; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg);
+  color: var(--fg); white-space: nowrap;
+}
+.dash-ring-job.idle {
+  border-color: transparent; background: none; color: var(--fg-muted);
+  opacity: 0.65;
+}
+.dash-ring svg { display: block; }
+.dash-ring-track { stroke: var(--line); }
+/* The ring colour tracks HOW FULL it is, which is the one place in this UI
+   where a warning colour is earned: memory pressure is a real, actionable
+   state and a container at 90% of its cap is minutes from an OOM kill. Unlike
+   the removed liveness chip, the normal state here is green, not amber. */
+.dash-ring-fill { stroke: var(--green-bright); transition: stroke-dasharray 0.4s ease; }
+.dash-ring.warn  .dash-ring-fill { stroke: var(--yellow-bright); }
+.dash-ring.high  .dash-ring-fill { stroke: var(--red, #e5534b); }
+.dash-ring-value { font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.dash-jobs-head { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.dash-jobs-head h3 { margin: 0; }
+.dash-jobs-head .jobs-toolbar { margin: 0; }
+.status { font-size: 0.8rem; padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.5rem; }
+/* dimmest state of the family; names its text so it isn't the one badge
+   left inheriting --fg-bright onto a mid grey (3.38:1) */
+.status.queued { background: var(--line-hi); color: var(--fg-bright); }
+/* bright badge, so it names its own dark text instead of inheriting --fg-bright */
+.status.running { background: var(--yellow); color: var(--on-accent); }
+.status.finished { background: var(--green-solid); }
+.status.no_flag { background: var(--yellow); color: var(--on-accent); }
+/* Awaiting a human verdict is not the same as a miss, and the pill has to say
+   so at a glance in the job list — cyan reads as "action available", the way
+   the yellow no_flag pill reads as "over". */
+.status.flag_ready { background: var(--cyan); color: var(--on-accent); }
+.status.failed { background: var(--red-solid); }
+.status.stopped { background: var(--purple-solid); }
+/* Held is the only pill that is waiting on the OPERATOR rather than on
+   the run: the remote died and a new target resumes it. Orange keeps it
+   out of the yellow "still going" family and off the cyan that
+   flag_ready uses for a pending verdict. Bright, so it names its own
+   dark text like the other bright badges. */
+.status.hold { background: var(--orange); color: var(--on-accent); }
+/* The held/blocked banners reuse the refusal banner's shape and only change
+   the accent, so a job showing several of them reads as one column of
+   reasons rather than three competing alarms. */
+.refusal-banner.hold-banner { border-color: var(--orange); }
+.refusal-banner.blocked-banner { border-color: var(--yellow); }
+
+/* Elapsed (running) / duration (terminal) pill, lives next to the
+   status badge in the job header. Visible alone, not buried in the
+   small meta sub-line. */
+.timing-pill {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid transparent;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.timing-pill.live {
+  background: var(--yellow-bg); color: var(--yellow-bright); border-color: var(--yellow-line);
+  animation: timing-pulse 1.6s ease-in-out infinite;
+}
+.timing-pill.done {
+  background: var(--green-bg-lo); color: var(--green-bright); border-color: var(--green-line);
+}
+.timing-pill.queued {
+  background: var(--surface); color: var(--fg-muted); border-color: var(--line);
+}
+/* Age of the agent's last SDK event. Deliberately the QUIETEST pill on the
+   row: muted foreground, plain surface, no pulse, and no state classes at all.
+   Its predecessor (the liveness chip, bc55640) went amber for 75.3% of a
+   healthy run and taught the operator to ignore it; a colour that is the normal
+   state is not a signal. This one only ever reports a number — the operator
+   reads life from it RESETTING, not from how it looks. Resist adding a
+   .warn/.dead variant here without first measuring the gap distribution: the
+   median is 0s and the max on a healthy run is 16 min, so no short threshold
+   separates "thinking" from "stuck". */
+.agent-pill {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface); color: var(--fg-muted);
+  border: 1px solid var(--line);
+  vertical-align: middle;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.timing-pill .timing-tag {
+  font-size: 0.68rem; padding: 0.02rem 0.35rem;
+  border-radius: 6px;
+  background: var(--yellow); color: var(--on-accent);
+  letter-spacing: 0.3px; font-weight: 600;
+}
+@keyframes timing-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 175, 104, 0.0); }
+  50%      { box-shadow: 0 0 0 3px rgba(224, 175, 104, 0.18); }
+}
+
+/* Run-log footer — sits inside .run-log-window directly under <pre>.
+   Hosts the tokens pill so the user can see spend without leaving the
+   run-log area. macOS-style frame around the row keeps the
+   terminal-window feel. (A liveness pill lived here too and was removed —
+   see the note in app.js: healthy jobs read amber 75% of the time.) */
+.run-log-window .run-log-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem 0.4rem;
+  border-top: 1px solid var(--line-soft);
+  background: linear-gradient(var(--grad-mid), var(--grad-lo));
+  font-size: 0.75rem;
+}
+.run-log-window .run-log-footer .tokens-pill {
+  margin-left: 0;
+}
+
+/* Token + cost meter pill — populated from meta.agent_tokens (SDK
+   AssistantMessage.usage merged) and meta.cost_usd. Only renders
+   once at least one input/output token has been observed. */
+.tokens-pill {
+  display: inline-flex; align-items: center;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--cyan-bg);
+  color: var(--cyan);
+  border: 1px solid var(--blue-line);
+  vertical-align: middle;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+/* Live Δ inside the tokens pill — refreshed every poll cycle so the
+   run-log footer feels like Claude Code's "↓ X tokens" status line.
+   `.idle` is when the poll cycle saw zero growth — a quick visual
+   hint that the agent is quiet. Note it is only a hint: a healthy job
+   spends most of its wall clock between emissions. */
+.tokens-pill .tokens-delta {
+  margin-left: 0.45em;
+  font-weight: 600;
+  color: var(--green);
+}
+.tokens-pill .tokens-delta.idle {
+  color: var(--fg-dim);
+  font-weight: 400;
+}
+#job-detail pre {
+  background: var(--surface);
+  padding: 0.75rem;
+  border-radius: 6px;
+  max-height: 400px;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+/* Description / retry-hint <pre> blocks: don't give them their own
+   internal scrollbar. The outer modal-body scrolls instead, and that
+   scroll position is preserved across polls — so the retry-hint
+   doesn't snap back to the top every 2 seconds while the user reads. */
+#job-detail pre.description-text {
+  max-height: none;
+  overflow: visible;
+}
+.file-links a { color: var(--blue); margin-right: 1rem; }
+.file-links a.file-preview-link { cursor: pointer; }
+.file-links a.file-preview-link:hover { text-decoration: underline; }
+
+/* File preview modal — opens when a .file-preview-link is left-clicked. */
+.file-modal {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.file-modal[hidden] { display: none; }
+.file-modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.file-modal-window {
+  position: relative;
+  width: min(1500px, 95vw);
+  height: min(820px, 88vh);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.file-modal-header {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+.file-modal-name {
+  font-weight: 600; color: var(--fg-bright);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.file-modal-meta { color: var(--fg-muted); font-size: 0.75rem; }
+.file-modal-actions {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.file-modal-actions a, .file-modal-actions button {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
+  padding: 0.25rem 0.6rem; border-radius: 5px;
+  font-size: 0.75rem; cursor: pointer; text-decoration: none;
+}
+.file-modal-actions a:hover, .file-modal-actions button:hover {
+  background: var(--line);
+}
+.file-modal-close { padding: 0.25rem 0.5rem !important; }
+/* A challenge image, shown at its own scale but never wider than the modal.
+   `max-height: 78vh` keeps a tall portrait photo from pushing the header off
+   screen — the OSINT challenge that motivated this was 1556x1061, but a
+   screenshot of a phone is the other shape and scrolls forever without it.
+   The checkerboard reads through transparent PNGs, which is how you tell an
+   alpha channel from a white background. */
+.file-modal-image {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  margin: 0 auto;
+  object-fit: contain;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--line) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--line) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.file-modal-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0.6rem 0.9rem;
+  background: var(--bg-sunken);
+}
+.file-modal-body pre {
+  margin: 0;
+  background: transparent;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.file-modal-body pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
+.file-modal-error {
+  background: var(--red-bg); border: 1px solid var(--red-line);
+  padding: 0.6rem; border-radius: 6px; color: var(--red-soft);
+}
+
+/* Markdown-rendered output (report.md etc.) */
+.markdown-rendered {
+  color: var(--fg-bright); font-size: 0.92rem; line-height: 1.6;
+}
+.markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3,
+.markdown-rendered h4, .markdown-rendered h5 {
+  color: var(--fg-bright);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.2rem;
+  margin: 1.3rem 0 0.6rem;
+}
+.markdown-rendered h1 { font-size: 1.45rem; }
+.markdown-rendered h2 { font-size: 1.25rem; }
+.markdown-rendered h3 { font-size: 1.05rem; border-bottom: 0; }
+.markdown-rendered code {
+  background: var(--surface); padding: 0.05rem 0.35rem;
+  border-radius: 4px; font-size: 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.markdown-rendered pre {
+  background: var(--surface); padding: 0.7rem; border-radius: 6px;
+  overflow-x: auto; border: 1px solid var(--surface-2);
+}
+.markdown-rendered pre code {
+  background: transparent; padding: 0; font-size: 0.8rem;
+}
+.markdown-rendered a { color: var(--blue); }
+.markdown-rendered blockquote {
+  border-left: 3px solid var(--purple-solid);
+  margin: 0.6rem 0; padding: 0.1rem 0.8rem;
+  color: var(--fg); background: var(--surface);
+}
+.markdown-rendered table {
+  border-collapse: collapse; margin: 0.6rem 0;
+}
+.markdown-rendered th, .markdown-rendered td {
+  border: 1px solid var(--line); padding: 0.3rem 0.6rem;
+}
+.markdown-rendered th { background: var(--surface); }
+.markdown-rendered hr {
+  border: 0; border-top: 1px solid var(--line); margin: 1rem 0;
+}
+
+/* Live SDK activity panel — fixed-height log-tail above the run-log.
+   Each AssistantMessage block (text / thinking / tool_use / tool_result)
+   becomes ONE row inside a stable container. No card chrome, no
+   animations — the panel size never reflows when new events arrive. */
+.sdk-live {
+  margin: 0 0 0.6rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.sdk-live.collapsed .sdk-live-feed { display: none; }
+.sdk-live-head {
+  display: flex; align-items: center; gap: 0.45rem;
+  background: linear-gradient(var(--grad-hi), var(--grad-mid));
+  border-bottom: 1px solid var(--line-soft);
+  padding: 0.3rem 0.65rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.4px;
+  user-select: none;
+}
+.sdk-live.collapsed .sdk-live-head { border-bottom: 0; }
+.sdk-live-dot {
+  display: inline-block; width: 0.5rem; height: 0.5rem;
+  border-radius: 50%;
+  background: var(--blue);
+  opacity: 0.85;
+}
+.sdk-live-label {
+  text-transform: uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.sdk-live-toggle {
+  margin-left: auto;
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  cursor: pointer;
+  user-select: none;
+}
+.sdk-live-toggle:hover { background: var(--line); color: var(--fg-max); }
+.sdk-live-feed {
+  display: block;
+  padding: 0.35rem 0.6rem;
+  height: 200px;            /* fixed — no reflow when new events arrive */
+  overflow-y: auto;
+  background: var(--bg-deep);
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code",
+               SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+.sdk-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0;
+  color: var(--fg);
+}
+.sdk-line-tag   { color: var(--fg-muted); }
+.sdk-line-body  { color: var(--fg); }
+.sdk-text  .sdk-line-label { color: var(--blue); font-weight: 600; }
+.sdk-think .sdk-line-label { color: var(--fg-dim); }
+.sdk-think .sdk-line-body  { color: var(--fg-muted); font-style: italic; }
+.sdk-tool  .sdk-line-label { color: var(--yellow); font-weight: 600; }
+.sdk-result .sdk-line-label { color: var(--green); font-weight: 600; }
+.sdk-error  .sdk-line-label { color: var(--red); font-weight: 600; }
+.sdk-error  .sdk-line-body  { color: var(--red-bright); }
+
+
+/* Run log "terminal" chrome: a window frame around the <pre>, with a
+   macOS-style traffic-light header. Plain visual upgrade — does not
+   change semantics or selection behavior. */
+.run-log-window {
+  background: var(--bg-deep);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+              0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  margin: 0;
+}
+.run-log-titlebar {
+  display: flex; align-items: center; gap: 0.45rem;
+  background: linear-gradient(var(--grad-hi), var(--grad-mid));
+  border-bottom: 1px solid var(--line-soft);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  user-select: none;
+}
+.run-log-dot {
+  display: inline-block; width: 0.7rem; height: 0.7rem;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.run-log-dot-r { background: #ff5f57; }
+.run-log-dot-y { background: #febc2e; }
+.run-log-dot-g { background: #28c840; }
+.run-log-title {
+  margin-left: 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.run-log-search {
+  margin-left: auto;
+  flex: 0 1 200px;
+  min-width: 90px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.12rem 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.run-log-search:focus { outline: none; border-color: var(--blue); }
+.run-log-search-count {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 0.68rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+mark.log-hit {
+  background: var(--yellow-solid);
+  color: var(--fg-bright);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.run-log-tz-toggle {
+  margin-left: 0.4rem;
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.1rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  user-select: none;
+  flex: 0 0 auto;
+}
+.run-log-tz-toggle:hover {
+  background: var(--line);
+  border-color: var(--line-hi);
+  color: var(--fg-max);
+}
+.run-log-tz-toggle:active {
+  background: var(--surface);
+}
+
+/* --- Monitor view: Run-log|Monitor tabs, language select, feed -------- */
+.rl-viewtabs { display: inline-flex; gap: 2px; margin-left: 0.5rem; flex: 0 0 auto; }
+.rl-viewtab {
+  background: var(--surface); color: var(--fg-muted);
+  border: 1px solid var(--line); border-radius: 5px;
+  padding: 0.12rem 0.6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem; cursor: pointer; user-select: none;
+}
+.rl-viewtab:hover { color: var(--fg-max); border-color: var(--line-hi); }
+.rl-viewtab.active { background: var(--blue-solid); color: var(--fg-bright); border-color: var(--blue-solid); }
+.monitor-lang {
+  margin-left: 0.4rem; flex: 0 0 auto;
+  background: var(--surface-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 0.1rem 0.35rem; font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.monitor-lang:focus { outline: none; border-color: var(--blue); }
+
+/* view switching: show the raw log OR the monitor feed, plus the controls
+   relevant to each. .run-log-search pushes right via margin-left:auto, so
+   when it's hidden the language select keeps that alignment. */
+.run-log-window .gpt-timeline-feed { display: none; }
+.run-log-window[data-view="log"] .monitor-feed,
+.run-log-window[data-view="log"] .gpt-timeline-feed { display: none; }
+.run-log-window[data-view="monitor"] .run-log,
+.run-log-window[data-view="monitor"] .gpt-timeline-feed { display: none; }
+.run-log-window[data-view="timeline"] .run-log,
+.run-log-window[data-view="timeline"] .monitor-feed { display: none; }
+/* Vuln is its own question, so its tab shows nothing else — and every other
+   tab shows no findings. The panel already renders "" outside this view; the
+   rule is the belt to that suspenders, because a live SSE append writes into
+   the element regardless of which tab is open. */
+.run-log-window[data-view="vuln"] .run-log,
+.run-log-window[data-view="vuln"] .monitor-feed,
+.run-log-window[data-view="vuln"] .gpt-timeline-feed { display: none; }
+.run-log-window:not([data-view="vuln"]) .vuln-panel { display: none; }
+.run-log-window[data-view="vuln"] .run-log-search,
+.run-log-window[data-view="vuln"] .run-log-search-count,
+.run-log-window[data-view="vuln"] .monitor-lang { display: none; }
+/* flex, not block: this selector is (0,3,0) and beats the `.gpt-timeline-feed`
+   rule below, so leaving `block` here silently defeated the fixed-header
+   layout no matter what that rule said. */
+.run-log-window[data-view="timeline"] .gpt-timeline-feed { display: flex; }
+.run-log-window[data-view="monitor"] .run-log-search,
+.run-log-window[data-view="monitor"] .run-log-search-count,
+.run-log-window[data-view="timeline"] .run-log-search,
+.run-log-window[data-view="timeline"] .run-log-search-count { display: none; }
+.run-log-window[data-view="log"] .monitor-lang { display: none; }
+.run-log-window[data-view="monitor"] .monitor-lang { margin-left: auto; }
+.run-log-window[data-view="timeline"] .monitor-lang { display: none; }
+.gpt-tools-toggle {
+  display: none;
+  margin-left: auto;
+  background: var(--surface-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 0.1rem 0.5rem; font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer; white-space: nowrap;
+}
+.run-log-window[data-view="timeline"] .gpt-tools-toggle { display: inline-block; }
+.gpt-tools-toggle:hover { border-color: var(--line-hi); color: var(--fg-max); }
+
+.monitor-feed {
+  background: var(--bg-deep);
+  max-height: 520px; min-height: 120px;
+  overflow-y: auto;
+  padding: 0.5rem 0.6rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem; line-height: 1.5;
+}
+.mon-empty { color: var(--fg-dim); padding: 1.2rem 0.4rem; text-align: center; }
+.mon-row {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.28rem 0.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-left: 3px solid transparent;
+}
+.mon-row:hover { background: rgba(255, 255, 255, 0.02); }
+.mon-ico { flex: 0 0 auto; font-size: 0.7rem; }
+.mon-time { flex: 0 0 auto; color: var(--fg-dim); font-size: 0.7rem; }
+.mon-kind {
+  flex: 0 0 auto; font-size: 0.62rem; text-transform: uppercase;
+  letter-spacing: 0.4px; color: var(--fg-muted);
+  background: var(--surface); border: 1px solid var(--surface-2); border-radius: 3px;
+  padding: 0 0.3rem;
+}
+.mon-text { flex: 1 1 auto; color: var(--fg); word-break: break-word; }
+.mon-good { border-left-color: var(--green); }
+.mon-good .mon-text { color: var(--green-soft); }
+.mon-warn { border-left-color: var(--yellow); }
+.mon-warn .mon-text { color: var(--yellow-bright); }
+.mon-err  { border-left-color: var(--red); }
+.mon-err  .mon-text { color: var(--red-bright); }
+.mon-info { border-left-color: var(--line); }
+
+/* GPT-only structured timeline. Claude/Grok never render this element. */
+.gpt-timeline-feed {
+  background: var(--bg-deep);
+  /* Fixed box, inner scroll. The agent cards are the answer to "what is
+     running where" and scrolling them away is exactly when you want them —
+     so the feed no longer scrolls as a whole; only the event list does. */
+  display: flex; flex-direction: column;
+  height: min(64vh, 820px); min-height: 180px;
+  overflow: hidden;
+  padding: 0.65rem 0.7rem 0;
+  color: var(--fg);
+}
+.gpt-timeline-feed > .gpt-timeline-meta,
+.gpt-timeline-feed > .gpt-agent-grid { flex: 0 0 auto; }
+.gpt-timeline-feed > .gpt-event-list {
+  flex: 1 1 auto;
+  /* Without min-height:0 a flex child refuses to shrink below its content and
+     the scrollbar never appears — the container just grows instead. */
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 1.2rem;
+}
+.gpt-timeline-meta {
+  display: flex; gap: 0.45rem; align-items: center;
+  margin-bottom: 0.55rem;
+  color: var(--fg-dim); font-size: 0.68rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.gpt-timeline-meta > span {
+  border: 1px solid var(--line-soft); border-radius: 999px;
+  padding: 0.1rem 0.45rem; background: var(--surface);
+}
+.gpt-timeline-source.fallback { color: var(--yellow-bright); }
+
+/* Agent activity readout in the timeline meta bar.  Three states, because the
+   expensive one is not "nothing running" but "main blocked on a child": job
+   24225668a27d spent 52% of its wall-clock there and nothing on screen said
+   so.  `waiting` therefore gets the warning colour, not the idle one. */
+.gpt-activity {
+  color: var(--fg-dim, #8b949e);
+  white-space: nowrap;
+}
+.gpt-activity.live { color: var(--green-bright, #3fb950); }
+.gpt-activity.waiting { color: var(--yellow-bright, #d29922); }
+
+/* Agent-count pill on the job header. Same three states as .gpt-activity, and
+   deliberately the same colours: the two readouts are the same fact in two
+   places, and an operator who learns one should not have to re-learn it. */
+.agent-count-pill {
+  border: 1px solid var(--line-soft); border-radius: 999px;
+  padding: 0.1rem 0.45rem; margin-left: 0.3rem;
+  background: var(--surface); color: var(--fg-dim, #8b949e);
+  font-size: 0.68rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap; vertical-align: middle;
+}
+.agent-count-pill.live { color: var(--green-bright, #3fb950); }
+.agent-count-pill.waiting { color: var(--yellow-bright, #d29922); }
+.gpt-agent-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.38rem; margin-bottom: 0.75rem;
+}
+.gpt-agent-card {
+  min-width: 0; border: 1px solid var(--line-soft); border-left: 3px solid var(--line-hi);
+  border-radius: 6px; background: var(--surface); padding: 0.42rem 0.5rem;
+}
+.gpt-agent-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.gpt-agent-card-head strong { font-size: 0.75rem; color: var(--fg-max); }
+.gpt-agent-card-head span { font-size: 0.64rem; color: var(--fg-muted); }
+.gpt-agent-card code {
+  display: block; margin-top: 0.12rem; color: var(--blue-bright);
+  font-size: 0.68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gpt-agent-card > div:last-child:not(.gpt-agent-card-head) {
+  margin-top: 0.24rem; color: var(--fg-muted); font-size: 0.68rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gpt-agent-running { border-left-color: var(--green); }
+.gpt-agent-waiting { border-left-color: var(--yellow); }
+.gpt-agent-failed { border-left-color: var(--red); }
+.gpt-agent-completed { border-left-color: var(--blue); }
+.gpt-event-list { border-top: 1px solid var(--line-soft); }
+.gpt-event {
+  display: grid; grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 0.35rem; padding: 0.5rem 0.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+.run-log-window[data-show-tools="0"] .gpt-tool-event { display: none; }
+.gpt-event-rail { position: relative; color: var(--fg-dim); text-align: center; }
+.gpt-event-rail::after {
+  content: ""; position: absolute; top: 1.15rem; bottom: -0.75rem; left: 50%;
+  border-left: 1px solid var(--line-soft);
+}
+.gpt-event:last-child .gpt-event-rail::after { display: none; }
+.gpt-event-main { min-width: 0; }
+.gpt-event-head { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.gpt-event-time {
+  color: var(--fg-dim); font-size: 0.66rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.gpt-role {
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3rem;
+  color: var(--blue-bright); background: var(--surface-2);
+  font-size: 0.62rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.gpt-event-head strong { color: var(--fg-max); font-size: 0.76rem; }
+.gpt-event-status {
+  color: var(--fg-muted); font-size: 0.62rem; border-radius: 999px;
+  background: var(--surface); padding: 0.04rem 0.35rem;
+}
+.gpt-event-stats {
+  margin-left: auto; color: var(--fg-dim); font-size: 0.63rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.gpt-event-summary {
+  margin-top: 0.28rem; color: var(--fg); font-size: 0.76rem; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.gpt-event-detail { margin-top: 0.3rem; }
+.gpt-event-detail > summary { color: var(--fg-dim); cursor: pointer; font-size: 0.67rem; }
+.gpt-event-detail > pre {
+  max-height: 280px; overflow: auto; margin: 0.35rem 0 0; padding: 0.5rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-muted);
+  background: var(--bg-sunken); border: 1px solid var(--line-soft); border-radius: 4px;
+  font-size: 0.68rem;
+}
+.gpt-status-running .gpt-event-rail { color: var(--green-bright); }
+.gpt-status-completed .gpt-event-rail { color: var(--green); }
+.gpt-status-failed .gpt-event-rail { color: var(--red); }
+.gpt-status-warning .gpt-event-rail { color: var(--yellow); }
+.gpt-event-artifact .gpt-event-rail { color: var(--blue-bright); }
+.gpt-event-wait .gpt-event-rail { color: var(--yellow-bright); }
+.gpt-timeline-empty { color: var(--fg-dim); padding: 1.5rem; text-align: center; }
+
+@media (max-width: 720px) {
+  .gpt-agent-grid { grid-template-columns: 1fr; }
+  .gpt-event-stats { display: none; }
+}
+
+/* The <pre.run-log> sitting inside the window frame */
+.run-log-window .run-log {
+  background: var(--bg-deep);
+  color: var(--fg);
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", SFMono-Regular,
+               Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0.7rem 0.85rem 1.2rem;
+  border: 0; border-radius: 0;
+  margin: 0;
+  /* Override the generic `#job-detail pre { max-height: 400px }` —
+     main agent output is no longer truncated, so the log needs more
+     vertical room. Scales with viewport, capped on huge screens so
+     it doesn't crowd out the rest of the job detail. */
+  max-height: min(60vh, 900px);
+}
+/* Blinking caret at the very end of the <pre>, only while the job is
+   live (running or queued — i.e. the log will keep growing). */
+.run-log-window .run-log[data-status="running"]::after,
+.run-log-window .run-log[data-status="queued"]::after {
+  content: "▍";
+  color: var(--green-bright);
+  animation: run-log-caret 1.05s steps(2, end) infinite;
+  margin-left: 0.15rem;
+}
+@keyframes run-log-caret {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* Run log: colorize timestamp + label + body produced by colorizeRunLog().
+   The base <pre.run-log> already has font + scrolling from the global
+   <pre> rule; these classes only add semantic colors. */
+.run-log .rl-ts {
+  color: var(--fg-dim);
+}
+.run-log .rl-system {
+  color: var(--fg-muted); font-style: italic;
+}
+.run-log .rl-label {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.run-log .rl-toolname {
+  color: var(--orange); font-weight: 600;
+}
+.run-log .rl-tool         { color: var(--cyan); }   /* TOOL */
+.run-log .rl-tool-result  { color: var(--green-bright); }   /* TOOL_RESULT */
+.run-log .rl-tool-error   { color: var(--red-bright); }   /* TOOL_ERROR */
+.run-log .rl-agent        { color: var(--purple-bright); }   /* AGENT */
+.run-log .rl-think        { color: var(--yellow-bright); }   /* THINK */
+.run-log .rl-done         { color: var(--cyan-bright); }   /* DONE */
+.run-log .rl-error,
+.run-log .rl-agent-error  { color: var(--red-bright); }   /* AGENT_ERROR / ERROR */
+.run-log .rl-body         { color: var(--fg); }
+.run-log .rl-think-body   { color: var(--yellow); font-style: italic; }
+.run-log .rl-done-body    { color: var(--cyan-bright); }
+.run-log .rl-error-body   { color: var(--red-soft); }
+
+/* Lifecycle / system events emitted by the analyzer or watchdog
+   (not by the SDK message stream). Distinct accent colors so the
+   user can spot agent boot, session fork, soft-timeout warning,
+   budget abort, manual sandbox runs, etc. at a glance. */
+.run-log .rl-lifecycle {
+  font-weight: 500;
+}
+.run-log .rl-info     { color: var(--cyan-bright); }   /* boot / fork / spawn */
+.run-log .rl-warn     { color: var(--yellow-bright); font-weight: 600; }
+.run-log .rl-decision { color: var(--purple-bright); font-weight: 600; }
+.run-log .rl-cyan     { color: var(--cyan); }
+.run-log .rl-budget {
+  color: var(--red-bright); background: var(--red-bg);
+  padding: 0 0.35rem; border-radius: 4px;
+  font-weight: 700; letter-spacing: 0.3px;
+}
+.run-log .rl-budget-body { color: var(--red-soft); }
+/* Runaway-output detection — same family as BUDGET_ABORT but the
+   tripwire is from the SDK side, not the orchestrator. Use a brighter
+   amber so it pops above the regular tool-result stream. */
+.run-log .rl-runaway {
+  color: var(--orange); background: var(--orange-bg);
+  border: 1px solid var(--orange-line); border-radius: 4px;
+  padding: 0 0.35rem; margin-right: 0.35rem;
+  font-weight: 700; letter-spacing: 0.3px;
+}
+.run-log .rl-runaway-body { color: var(--orange-soft); font-weight: 600; }
+
+/* Agent identity chip — distinguishes main writer vs recon / judge
+   subagents. Subagent lines (recon and judge) also get a small ↳
+   indent marker so a delegation reads visually like a nested call. */
+.run-log .rl-agent-tag {
+  display: inline-block;
+  font-size: 0.68rem;
+  letter-spacing: 0.2px;
+  font-weight: 700;
+  padding: 0 0.35rem;
+  margin-right: 0.35rem;
+  border-radius: 4px;
+  vertical-align: 0.05em;
+  border: 1px solid transparent;
+}
+.run-log .rl-agent-tag-main {
+  color: var(--purple-bright); background: var(--purple-bg); border-color: var(--purple-line);
+}
+.run-log .rl-agent-tag-recon {
+  color: var(--orange); background: var(--orange-bg); border-color: var(--orange-line);
+}
+.run-log .rl-agent-tag-judge {
+  color: var(--green-bright); background: var(--green-bg-lo); border-color: var(--green-bright-line);
+}
+.run-log .rl-agent-tag-debugger {
+  color: var(--cyan); background: var(--blue-bg); border-color: var(--cyan-line);
+}
+.run-log .rl-recon-indent {
+  color: var(--fg-dim); margin-right: 0.1rem;
+}
+
+/* Job detail modal — full job render lifted out of the page into an
+   overlay. Lower z-index than file-modal so file previews stack above. */
+body.modal-open { overflow: hidden; }
+.job-modal {
+  position: fixed; inset: 0; z-index: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.job-modal[hidden] { display: none; }
+.job-modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.job-modal-window {
+  position: relative;
+  width: min(1600px, 96vw);
+  height: min(880px, 92vh);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.job-modal-header {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.95rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.job-modal-title {
+  font-weight: 600; color: var(--fg-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.job-modal-actions {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.job-modal-actions button {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
+  padding: 0.25rem 0.6rem; border-radius: 5px;
+  font-size: 0.8rem; cursor: pointer;
+}
+.job-modal-actions button:hover { background: var(--line); }
+.job-modal-close { padding: 0.25rem 0.55rem !important; }
+.job-modal-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0.9rem 1rem;
+  background: var(--bg-sunken);
+}
+
+/* ONE BASELINE FOR JOB-DETAIL HEADINGS.
+   Some sections style their own h4 as a small uppercase label (.retry-panel,
+   .log-findings-panel); the rest were bare <h4>, so they rendered at the
+   browser default — noticeably larger, with 1.33em margins above and below —
+   and the panel read as a stack of differently-sized blocks.
+   `:where()` contributes NOTHING to specificity, so this is a floor that
+   every existing rule still beats. Nothing that already looked right moves. */
+.job-modal-body :where(h3) {
+  font-size: 1rem; font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+.job-modal-body :where(h4) {
+  font-size: 0.88rem; font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+/* A heading that follows content needs air above it; the first one does not. */
+.job-modal-body :where(* + h4) { margin-top: 0.9rem; }
+
+/* Blocks in the detail read as cards, and they were spaced by whatever
+   margin each one happened to carry. */
+.job-modal-body > * + * { margin-top: 0.75rem; }
+
+/* Job facts, as chips instead of one `·`-joined sentence. The label is dimmed
+   and the value is not, so the eye lands on the value. */
+.job-meta {
+  display: flex; flex-wrap: wrap; gap: 0.35rem 0.45rem;
+  margin: 0.5rem 0 0.9rem;
+}
+.job-meta-chip {
+  font-size: 0.76rem;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--fg);
+  max-width: 30rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-meta-chip b { color: var(--fg-muted); font-weight: 500; }
+
+/* Outcome (left) beside activity (right). The modal is min(1600px, 96vw) and
+   was rendering a single column into it, so long lines ran the full width and
+   the run log started below the fold on every job.
+   `align-items: start` keeps the two columns independent — without it the
+   shorter one stretches and its background runs to the bottom of the taller. */
+.job-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 42fr) minmax(400px, 58fr);
+  gap: 1rem 1.25rem;
+  align-items: start;
+}
+/* One column before the columns get too narrow to read. The run log is
+   monospace and wraps badly below ~400px, which is what sets this number. */
+@media (max-width: 1150px) {
+  .job-grid { grid-template-columns: 1fr; }
+}
+.job-col-outcome, .job-col-activity { min-width: 0; }   /* let children shrink */
+/* The log follows the job; the outcome column is read once. Sticking the
+   activity column means scrolling the left side does not scroll the log out of
+   view. `top` clears the modal's own padding. */
+@media (min-width: 1151px) {
+  .job-col-activity { position: sticky; top: 0; }
+  /* The column is sticky inside a scroll container, so the log has the whole
+     modal height to work with rather than the 60vh it needed when it sat at
+     the bottom of one long page. */
+  .job-col-activity .run-log-window .run-log,
+  .job-col-activity .monitor-feed { max-height: min(64vh, 760px); }
+}
+
+/* --- Exploit Library tab ---------------------------------------------- */
+.exp-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+  padding: 0.5rem 0;
+}
+.exp-toolbar input[type="search"],
+.exp-toolbar select {
+  background: var(--bg-sunken); border: 1px solid var(--line); color: var(--fg);
+  padding: 0.35rem 0.6rem; border-radius: 5px; font-size: 0.85rem;
+}
+.exp-toolbar button,
+.exp-toolbar a {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
+  padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.85rem;
+}
+.exp-toolbar button:hover,
+.exp-toolbar a:hover { background: var(--line); }
+.exp-list {
+  list-style: none; padding: 0; margin: 0;
+  display: grid; gap: 0.6rem;
+}
+.exp-card {
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+}
+.exp-card-head {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 0.35rem; font-size: 0.85rem;
+}
+.exp-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--blue); font-weight: 600;
+}
+.exp-module {
+  background: var(--blue-tint); color: var(--blue);
+  border: 1px solid var(--blue-line); padding: 0.05rem 0.45rem;
+  border-radius: 4px; font-size: 0.75rem; text-transform: uppercase;
+}
+.exp-module.pwn      { color: var(--red); border-color: var(--red-line); background: var(--red-tint); }
+.exp-module.crypto   { color: var(--purple-bright); border-color: var(--purple-bright-line); background: var(--purple-bright-tint); }
+.exp-module.web      { color: var(--green-soft); border-color: var(--green-soft-line); background: var(--green-soft-tint); }
+.exp-module.rev      { color: var(--orange); border-color: var(--orange-line); background: var(--orange-tint); }
+.exp-module.forensic { color: var(--cyan); border-color: var(--cyan-line); background: var(--cyan-tint); }
+.exp-module.misc     { color: var(--fg-muted); border-color: var(--grey-line); background: var(--grey-tint); }
+.exp-saved {
+  margin-left: auto; color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+.exp-card-meta { font-size: 0.82rem; line-height: 1.55; color: var(--fg); }
+.exp-card-meta b { color: var(--fg-bright); }
+.exp-card-meta code { font-size: 0.78rem; }
+.exp-tag {
+  display: inline-block;
+  background: var(--surface-2); color: var(--fg-muted);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 0.05rem 0.45rem; font-size: 0.72rem; margin-right: 0.25rem;
+}
+.exp-flag {
+  background: var(--surface-2); color: var(--green-soft);
+  padding: 0.05rem 0.35rem; border-radius: 3px;
+  font-size: 0.75rem;
+}
+.exp-notes {
+  background: var(--surface); border-left: 2px solid var(--line);
+  padding: 0.3rem 0.55rem; margin-top: 0.3rem;
+  color: var(--fg); font-size: 0.8rem; white-space: pre-wrap;
+}
+.exp-card-actions {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem;
+}
+.exp-card-actions a,
+.exp-card-actions button {
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--fg);
+  padding: 0.3rem 0.65rem; border-radius: 5px;
+  font-size: 0.78rem; cursor: pointer; text-decoration: none;
+}
+.exp-card-actions a:hover,
+.exp-card-actions button:hover { background: var(--line); color: var(--fg-bright); }
+.exp-del-btn:hover { background: var(--red-solid-deep) !important; border-color: var(--red) !important; }
+.exp-empty {
+  color: var(--fg-muted); padding: 1rem; text-align: center;
+  border: 1px dashed var(--line); border-radius: 6px;
+}
+/* Save-to-DB button inside the job detail flag banner */
+.exp-save-btn {
+  margin-left: 0.6rem; vertical-align: middle;
+  background: var(--blue-tint); color: var(--blue);
+  border: 1px solid var(--blue-line);
+  padding: 0.25rem 0.7rem; border-radius: 5px;
+  font-size: 0.78rem; cursor: pointer;
+}
+.exp-save-btn:hover { background: var(--blue-fill); }
+.exp-save-btn:disabled { opacity: 0.6; cursor: wait; }
+.exp-save-btn.copied {
+  background: var(--green-tint); color: var(--green-soft); border-color: var(--green-line);
+}
+
+/* ── Flag alarm toasts (bottom-right) ─────────────────────────────── */
+#flag-toast-container {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column-reverse;   /* newest at the bottom, stack upward */
+  gap: 10px;
+  max-width: min(360px, 90vw);
+  /* Toasts are STICKY (no auto-fade) so unacknowledged flags can stack —
+     cap the stack to the viewport and scroll rather than run off the top. */
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  pointer-events: none;             /* container ignores clicks; toasts opt back in */
+}
+.flag-toast {
+  pointer-events: auto;
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 10px 30px 10px 12px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  color: var(--fg-bright);
+  cursor: pointer;
+  animation: flagToastIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.flag-toast.flag {
+  border-left-color: var(--green);
+  background: linear-gradient(90deg, var(--green-bg-lo), var(--surface) 55%);
+}
+.flag-toast.cand {
+  border-left-color: var(--yellow);
+  background: linear-gradient(90deg, var(--yellow-bg-lo), var(--surface) 55%);
+}
+.flag-toast.leaving { animation: flagToastOut 0.4s ease forwards; }
+.flag-toast-h { font-size: 0.92rem; letter-spacing: 0.2px; }
+.flag-toast.flag .flag-toast-h strong { color: var(--green-soft); }
+.flag-toast.cand .flag-toast-h strong { color: var(--yellow-bright); }
+.flag-toast-sub { font-size: 0.72rem; color: var(--fg-muted); margin-top: 2px; }
+.flag-toast-id { font-family: ui-monospace, monospace; }
+.flag-toast-body { margin-top: 6px; }
+.flag-toast-body code {
+  font-size: 0.74rem; word-break: break-all;
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 4px;
+  padding: 2px 5px; display: inline-block; max-width: 100%;
+}
+.flag-toast.flag .flag-toast-body code { color: var(--green-soft); }
+.flag-toast-x {
+  position: absolute; top: 4px; right: 6px;
+  background: none; border: none; color: var(--fg-muted);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 2px;
+}
+.flag-toast-x:hover { color: var(--red); }
+@keyframes flagToastIn {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes flagToastOut {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(40px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flag-toast, .flag-toast.leaving { animation: none; }
+}
+
+/* Version / last-patch badge in the header (see initVersionBadge in app.js).
+   Muted monospace chip so the operator can confirm the deployed version at a
+   glance; turns amber when live source is newer than the stamped commit. */
+.version-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg-muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-left: 10px;
+  white-space: nowrap;
+  cursor: default;
+  align-self: center;
+}
+.version-badge:empty { display: none; }
+.version-badge--dirty {
+  color: var(--yellow);
+  border-color: rgba(224, 175, 104, 0.45);
+  background: rgba(224, 175, 104, 0.10);
+}
+
+/* --- Model presets (Settings tab) --------------------------------------- */
+.preset-block {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.preset-block code { color: var(--fg-bright); background: var(--surface); padding: 0 3px; border-radius: 4px; }
+.preset-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  margin: 0.6rem 0;
+  flex-wrap: wrap;
+}
+.preset-provider-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin: 0.75rem 0 0.4rem;
+}
+.preset-provider-tabs button {
+  width: 100%;
+}
+.preset-provider-tabs button.active {
+  color: var(--fg-bright);
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 16%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 35%, transparent);
+}
+.preset-btns { display: flex; gap: 0.4rem; }
+.preset-block select {
+  width: 100%;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  color: var(--fg-bright);
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+}
+.preset-block button {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--fg-bright);
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.preset-block button#preset-save { background: var(--green-solid); border-color: var(--green); }
+.preset-block button#preset-delete { color: var(--red); }
+.preset-block button:hover { filter: brightness(1.15); }
+#preset-roles {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+.preset-role {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+.preset-role-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: var(--yellow);
+}
+.preset-empty { color: var(--fg-muted); font-size: 0.85rem; margin: 0.4rem 0; }
+
+/* --- Cloudflared tunnel (Settings) -------------------------------------- */
+#tunnel-block #tunnel-activate { background: var(--green-solid); border-color: var(--green); }
+#tunnel-block #tunnel-stop { color: var(--red); }
+#tunnel-block #tunnel-chip { align-self: center; }
+.tunnel-warning {
+  border: 1px solid var(--red-solid);
+  background: rgba(247, 118, 142, 0.10);
+  color: var(--red-bright);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin: 0.5rem 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.tunnel-warning[hidden] { display: none; }
+.tunnel-warning code { color: var(--red-bright); background: var(--red-bg); padding: 0 3px; border-radius: 4px; }
+
+/* --- Containers tab -------------------------------------------------------
+   Inventory + manual cleanup. The colour work is doing one job: making
+   "safe to delete" separable from "this will break something" at a glance,
+   because the delete is irreversible and the rows look otherwise alike. */
+.containers-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0.6rem 0 0.8rem;
+  flex-wrap: wrap;
+}
+.containers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.containers-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--line-hi);
+  padding: 0.4rem 0.6rem;
+  white-space: nowrap;
+}
+.containers-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.containers-table tbody tr:hover { background: var(--surface-2); }
+.containers-table code { font-size: 0.85rem; color: var(--fg-bright); }
+
+.c-dim  { color: var(--fg-dim); font-size: 0.78rem; }
+.c-hot  { color: var(--red-bright); font-weight: 600; }
+.c-warn { color: var(--yellow-bright); }
+
+.c-state--up   { color: var(--green-bright); }
+.c-state--down { color: var(--fg-dim); }
+
+/* Kind badges. `challenge` is deliberately the loudest: those are the
+   containers nothing reaps, so they are what the operator came here to find. */
+.c-badge {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid transparent;
+}
+.c-badge--challenge { background: var(--yellow-bg);  color: var(--yellow-bright); border-color: var(--yellow-line); }
+.c-badge--sandbox   { background: var(--blue-bg);    color: var(--blue-bright);   border-color: var(--blue-line); }
+.c-badge--tunnel    { background: var(--purple-bg);  color: var(--purple-bright); border-color: var(--purple-bright-line); }
+.c-badge--core      { background: var(--green-bg);   color: var(--green-bright);  border-color: var(--green-line); }
+
+/* A flagged row and its reason read as ONE unit — the warning sits directly
+   under the row it belongs to with no separating border. */
+.c-row--warn td { border-bottom: none; }
+.c-warnrow td {
+  padding: 0.1rem 0.6rem 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--yellow-bright);
+  font-size: 0.78rem;
+}
+
+.btn-sm {
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  border-radius: 3px;
+  border: 1px solid var(--line-hi);
+  background: var(--surface-2);
+  color: var(--fg);
+  cursor: pointer;
+}
+.btn-sm:hover:not(:disabled) {
+  border-color: var(--red-line-hi);
+  color: var(--red-bright);
+  background: var(--red-bg);
+}
+.btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
+/* A guessed job id must not read the same as a labelled one — the operator is
+   about to delete something on the strength of it. */
+.c-guess { color: var(--yellow-bright); opacity: 0.9; }
+
+/* ------------------------------------------------ container process detail */
+.c-row--click { cursor: pointer; }
+.proc-caret {
+  display: inline-block;
+  width: 0.9rem;
+  color: var(--fg-dim);
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+.proc-caret--open { transform: rotate(90deg); color: var(--fg-bright); }
+.proc-detail > td {
+  padding: 0.5rem 0.6rem 0.75rem 1.5rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.proc-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+.proc-mem { font-size: 0.78rem; color: var(--fg-muted); }
+.proc-note { margin: 0 0 0.4rem; font-size: 0.75rem; }
+/* The badge carries the caveat, so it must not read as decoration: a lifetime
+   average and a live sample are different claims about the same column. */
+.proc-src {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  border: 1px solid var(--line-hi);
+}
+.proc-src--live { color: var(--green-bright); border-color: var(--green-bright); }
+.proc-src--avg  { color: var(--yellow-bright); border-color: var(--yellow-bright); }
+.proc-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.proc-table th {
+  text-align: left;
+  padding: 0.2rem 0.5rem;
+  color: var(--fg-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+.proc-table td {
+  padding: 0.18rem 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.proc-table tbody tr:hover { background: var(--surface); }
+/* A long argv must not push the numeric columns off screen — the whole point
+   of the panel is comparing CPU and RSS across rows. */
+.proc-cmd {
+  display: inline-block;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-size: 0.78rem;
+  color: var(--fg-bright);
+}
+
+/* Per-role provider overrides: four short selects, one row on a wide screen
+   and wrapping on a narrow one rather than a fixed column count. */
+.role-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.role-provider-grid label { margin: 0; }
+
+/* A role routed off the job's backend. It emits no GPT events, so its card
+   stays "configured" for the whole run — the badge is what stops that reading
+   as a stalled GPT agent. */
+.gpt-agent-routed {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+}
+
+/* The run button stays enabled — an operator may still want to run a scaffold
+   to see it fail — but it should not read as "there is a working exploit". */
+.script-scaffold {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--yellow-bright, #e3b341);
+  background: rgba(227, 179, 65, 0.12);
+  border: 1px solid rgba(227, 179, 65, 0.4);
+}
+
+/* ---------------------------------------------------- job file browser
+   Replaces the hard-coded per-artifact link row. The runner names its
+   output after the script it ran, so any fixed list eventually points at a
+   name that does not exist (a crypto Sage job writes `solver.sage.stdout`,
+   which no list contained) — listing the directory removes the guess. */
+.job-files {
+  margin: 0.5rem 0 0.25rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.job-files-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 0.82rem;
+}
+.job-files-crumbs { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; }
+.job-files-crumb { color: var(--fg-bright); text-decoration: none; }
+.job-files-crumb:hover { text-decoration: underline; }
+.job-files-sep { color: var(--fg-dim); margin: 0 0.25rem; }
+.job-files-terminal { font-size: 0.8rem; white-space: nowrap; }
+/* Bounded so a directory of thousands cannot push the rest of the job
+   detail off screen — it scrolls inside its own box instead. */
+.job-files-list {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: 0.25rem 0.5rem 0.4rem;
+  font-size: 0.85rem;
+}
+.jf-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.1rem 0;
+}
+/* The listing reads as one ramp: directory brightest, filename a step below,
+   size dimmest. `.jf-file` also carries `.file-preview-link`, so with no colour
+   of its own it inherited `.file-links a`'s --blue — a rule picked for a
+   different surface. That blue clears AAA against --bg on its own (7.3:1), but
+   it sits at half the luminance of the --fg-bright directory on the adjacent
+   row, so a filename sinks next to its neighbour rather than against the page.
+   Naming the colour here ends the inheritance. */
+.jf-dir { color: var(--fg-bright); text-decoration: none; }
+.jf-dir:hover { text-decoration: underline; }
+.jf-file { color: var(--fg); text-decoration: none; }
+.jf-file:hover { text-decoration: underline; }
+/* A long generated filename must not push the size column off screen. */
+.jf-row > a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46vw;
+}
+.jf-size { margin-left: auto; color: var(--fg-dim); font-size: 0.78rem; white-space: nowrap; }
+.jf-link { color: var(--yellow-bright); font-size: 0.75rem; }
+.jf-trunc { color: var(--yellow-bright); font-size: 0.78rem; padding-top: 0.3rem; }
+/* Only rows that ARRIVE after the first paint animate. The listing is patched
+   in place rather than rewritten, so a poll that changes nothing is invisible;
+   this is what makes a file appearing mid-run readable as an event instead of
+   the whole directory blinking. A first paint is deliberately not animated —
+   shimmering through an entire directory on open is the same noise. */
+@keyframes jf-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.jf-row.jf-new { animation: jf-fade-in 0.45s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .jf-row.jf-new { animation: none; }
+}
+
+
+/* ---------------------------------------------------------------- verdict
+   The operator's true/false-positive call on what a run produced. The
+   awaiting variant is deliberately louder: that job is BLOCKED on a click and
+   will sit there forever if nobody notices it. */
+.verdict-banner {
+  margin: 0.75rem 0; padding: 0.75rem 1rem;
+  border: 1px solid var(--line); border-left: 3px solid var(--fg-muted);
+  border-radius: 8px; background: var(--surface);
+}
+.verdict-banner--awaiting { border-left-color: var(--cyan); }
+.verdict-banner h4 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.verdict-values { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
+.verdict-values code, .verdict-rejected code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem; padding: 0.15rem 0.4rem;
+  background: var(--bg-sunken); border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+.verdict-why { font-size: 0.82rem; color: var(--fg-muted); margin-bottom: 0.5rem; }
+/* One row per candidate when there is a choice to make. The button has to sit
+   ON the value it confirms — a single "Ok" under a list of three is exactly
+   the ambiguity that got both of 2e778201fe66's mutually exclusive candidates
+   written into meta.flags. */
+.verdict-values:has(.verdict-pick) { flex-direction: column; align-items: stretch; }
+.verdict-pick {
+  display: flex; align-items: center; gap: 0.5rem;
+  justify-content: space-between; flex-wrap: wrap;
+}
+.verdict-pick-btn { font-size: 0.8rem; padding: 0.25rem 0.6rem; }
+.verdict-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.verdict-btn {
+  padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-raised);
+  color: var(--fg); font-family: inherit; font-size: 0.85rem;
+}
+.verdict-btn:hover:not(:disabled) { border-color: var(--fg-muted); }
+.verdict-btn:disabled { opacity: 0.5; cursor: default; }
+.verdict-ok { border-color: var(--green); }
+.verdict-wrong { border-color: var(--red); }
+.verdict-rejected {
+  margin-top: 0.5rem; font-size: 0.78rem; color: var(--fg-muted);
+}
+.verdict-status { margin-top: 0.4rem; font-size: 0.8rem; color: var(--fg-muted); }
+
+/* --- Settings: click-into sections --------------------------------------- */
+/* A vertical menu on the left, one section on the right. Deliberately NOT
+   .tab/.panel: app.js's top-level switcher strips .active from every .tab and
+   every .panel in the document, which would blank a nested one. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(11rem, 15rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 860px) { .settings-layout { grid-template-columns: 1fr; } }
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: sticky;
+  top: 1rem;
+}
+.settings-nav button {
+  text-align: left;
+  font: inherit;
+  font-size: 0.9rem;
+  background: transparent;
+  color: var(--fg-bright);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+}
+.settings-nav button:hover { background: var(--surface-2); }
+.settings-nav button.active {
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 16%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 35%, transparent);
+}
+.settings-nav button.settings-nav--dirty::after {
+  content: " \2022";
+  color: var(--yellow);
+}
+.settings-body { display: flex; flex-direction: column; }
+/* Hidden by class, never disabled and never removed: the controls stay in
+   FormData so one Save covers every section. */
+/* Scoped to the panel on purpose: a bare attribute selector in a 5.5k-line app
+   is a trap for the next consumer of the same attribute name.
+   INVARIANT: no rule in this block may set `display` on a pane DESCENDANT.
+   #tunnel-url / #tunnel-chip are shown and hidden through the [hidden]
+   attribute (app.js renderTunnel), and a descendant display rule would
+   un-hide a dead tunnel URL. */
+#panel-settings [data-settings-pane] { display: none; }
+#panel-settings [data-settings-pane].settings-pane--on { display: flex; flex-direction: column; gap: 0.75rem; }
+/* #model-presets / #tunnel-block are .preset-block: block flow, and their
+   separator border is meaningless once they are their own section. */
+#panel-settings .preset-block[data-settings-pane].settings-pane--on { display: block; }
+/* A feature toggle whose DEFAULT is the point needs to read as one thing, not
+   as a stray checkbox above four lines of grey. The accent bar and sunken
+   ground borrow .provider-fieldset's language so it belongs to this page. */
+.setting-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue-solid);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+}
+.setting-toggle label.checkbox { font-size: 0.95rem; }
+.setting-toggle input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--blue-solid);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.setting-toggle .setting-toggle-state {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+}
+.setting-toggle small { line-height: 1.5; }
+
+#panel-settings .preset-block[data-settings-pane] {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.settings-footer { display: flex; gap: 0.5rem; padding-top: 0.5rem; }
+.settings-footer[hidden] { display: none; }
+
+/* ── flag_grain ────────────────────────────────────────────────────────────
+   Sits under the job's directory browser. The harvester is ADVISORY — it can
+   never write meta.flags or end a job — so this box is the only place its
+   findings surface, and the only place its FAILURES do. `error` rows are
+   styled apart deliberately: an adjudication that could not run once looked
+   exactly like one that found nothing (job 8e12a5fb1475), and that is the
+   confusion this box exists to end. */
+.flag-grain {
+  margin-top: 10px;
+  border: 1px solid var(--amber, #b7791f);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--amber, #b7791f) 8%, transparent);
+}
+.flag-grain-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--amber, #b7791f) 35%, transparent);
+}
+.flag-grain-title { font-weight: 600; letter-spacing: .02em; }
+.flag-grain-count { color: var(--fg-muted); font-size: .85em; }
+.flag-grain-list { padding: 4px 0; }
+.flag-grain-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px;
+  flex-wrap: wrap;
+}
+.flag-grain-row + .flag-grain-row {
+  border-top: 1px solid color-mix(in srgb, var(--fg-muted) 18%, transparent);
+}
+.flag-grain-when { color: var(--fg-muted); font-size: .8em; font-variant-numeric: tabular-nums; }
+/* The flag must be selectable as one unit — this is a string an operator
+   pastes into a scoreboard under time pressure. */
+.flag-grain-flag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  user-select: all;
+  word-break: break-all;
+}
+.flag-grain-conf { color: var(--fg-muted); font-size: .8em; }
+/* "후보로 ↑" sits next to Copy but is not the same weight of action: Copy is
+   free, this one rewrites the job's flag state. Tinted, not shouted — the row
+   is a list the operator scans, and a loud button on every line would read as
+   the primary action when most rows never need it. */
+.flag-grain-promote {
+  border-color: var(--green, #2f855a);
+  color: var(--green, #2f855a);
+  white-space: nowrap;
+}
+.flag-grain-promote:disabled { opacity: .55; cursor: default; }
+.flag-grain-why { color: var(--fg-muted); font-size: .82em; flex: 1 1 auto; min-width: 0; }
+.flag-grain-row.is-error .flag-grain-why { color: var(--red, #c53030); }
+/* The drain tally: a quiet summary row, unless a batch was actually lost. */
+.flag-grain-row.is-tally .flag-grain-why {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-style: italic;
+}
+.flag-grain-row.is-tally.is-lost .flag-grain-why {
+  color: var(--red, #c53030);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* The render cap's banner. Deliberately loud enough to read as "there is more"
+   rather than as a UI chrome line an operator learns to skip: a capped panel
+   that looks complete is worse than a slow one. */
+.render-cap-more {
+  padding: 0.35rem 0.6rem; margin: 0 0 0.4rem;
+  font-size: 0.78rem; color: var(--fg-dim);
+  background: rgba(255, 255, 255, 0.035);
+  border-left: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+.render-cap-more button {
+  margin-left: 0.35rem; padding: 0.1rem 0.5rem;
+  font: inherit; color: var(--fg); cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 3px;
+}
+.render-cap-more button:hover { background: rgba(255, 255, 255, 0.16); }
+
+/* AI Player ------------------------------------------------------------ */
+.player-intro { max-width: 76ch; line-height: 1.6; color: var(--fg-muted); }
+.player-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; margin: 14px 0; background: var(--bg-elev);
+}
+.player-card h3 { margin: 0 0 10px; font-size: 15px; }
+.player-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.player-row > label { flex: 1 1 180px; }
+.player-msg { margin-left: 10px; color: var(--fg-muted); font-size: 13px; }
+.player-summary { font-weight: 600; margin-bottom: 8px; }
+.player-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.player-table th, .player-table td {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.player-table th { color: var(--fg-muted); font-weight: 600; }
+.player-empty { color: var(--fg-muted); font-style: italic; }
+.player-ok { color: var(--green, #4caf50); }
+.player-warn { color: var(--yellow, #e0a030); }
+.player-log {
+  margin-top: 10px; max-height: 340px; overflow: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px; font-size: 12px; line-height: 1.5; white-space: pre-wrap;
+}
+
+/* --- live-fire v2: the vulnerabilities the plan agent identified -----------
+   Sits above the patch snapshots on purpose: what was FOUND is the question
+   an operator asks before what SHIPPED. Rows are reconciled by vulnerability
+   id rather than repainted, so the panel sits still while a job runs. */
+/* The agent grid: one card per lane, so blueteams that started in the same
+   second are separate things to look at rather than identical log
+   lines. auto-fit rather than a fixed column count because the number of
+   blueteams is the number of vulnerabilities, which nobody knows in advance. */
+.live-fire-agents { margin-top: 0.7rem; border-top: 1px solid var(--line); padding-top: 0.55rem; }
+.live-fire-agents-head { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; }
+.live-fire-agents-head small { font-weight: 400; color: var(--fg-muted); }
+.live-fire-agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.4rem;
+}
+.live-fire-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-subtle, transparent);
+  font-size: 0.8rem;
+}
+/* A lane that is working earns the accent; the rest stay quiet, or the grid
+   is a wall of colour and nothing stands out. */
+.live-fire-agent[data-state="running"],
+.live-fire-agent[data-state="retrying"] {
+  border-color: var(--accent, #6aa6ff);
+}
+.live-fire-agent-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.live-fire-agent-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-fire-agent-state { font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+.live-fire-agent-state.is-running  { color: var(--accent, #6aa6ff); }
+.live-fire-agent-state.is-retrying { color: var(--warn, #d2932a); }
+.live-fire-agent-state.is-done     { color: var(--ok, #3fa46a); }
+.live-fire-agent-state.is-failed   { color: var(--bad, #d05a5a); }
+.live-fire-agent-state.is-idle     { color: var(--fg-muted); }
+/* Two lines of detail, then ellipsis — a card that grows with its text
+   breaks the grid's rows out of alignment. */
+.live-fire-agent-detail {
+  color: var(--fg-muted);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.live-fire-agent-clock {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 520px) {
+  .live-fire-agents-grid { grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+}
+
+.live-fire-vulns { margin-top: 0.7rem; border-top: 1px solid var(--line); padding-top: 0.55rem; }
+.live-fire-vulns-head { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+.live-fire-vulns-head small { font-weight: 400; color: var(--fg-muted); }
+.live-fire-vulns-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.live-fire-vuln {
+  display: grid;
+  /* Fixed leading columns so the id, the class and the state line up down the
+     list — `auto` sized them per row and nothing aligned between them. */
+  grid-template-columns: 2.2rem 8.5rem minmax(0, 1fr) 5.5rem 2.6rem;
+  align-items: baseline;
+  gap: 0.32rem 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-subtle, transparent);
+}
+/* A row that has just appeared is worth a glance; one that has been there for
+   a while is not. Same fade the snapshot rows use. */
+.live-fire-vuln.is-new { animation: lf-vuln-in 1.2s ease-out; }
+@keyframes lf-vuln-in {
+  from { background: var(--accent-soft, rgba(120,170,255,0.18)); }
+  to   { background: var(--bg-subtle, transparent); }
+}
+.live-fire-vuln-id { font-weight: 700; font-variant-numeric: tabular-nums; }
+.live-fire-vuln-class {
+  font-size: 0.72rem; padding: 0.05rem 0.35rem; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--fg-muted);
+  justify-self: start; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.live-fire-vuln-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem; color: var(--fg-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;   /* keep the FILENAME when it truncates */
+}
+.live-fire-vuln-state { font-size: 0.75rem; font-weight: 600; white-space: nowrap; justify-self: end; }
+.live-fire-vuln-state.is-integrated { color: var(--ok, #3fa34d); }
+.live-fire-vuln-state.is-submitted  { color: var(--ok, #3fa34d); opacity: 0.8; }
+.live-fire-vuln-state.is-in-flight  { color: var(--accent, #4a8fe7); }
+.live-fire-vuln-state.is-deferred   { color: var(--warn, #c98a00); }
+.live-fire-vuln-state.is-failed     { color: var(--err, #d14343); }
+.live-fire-vuln-state.is-pending    { color: var(--fg-muted); }
+.live-fire-vuln-tries { font-size: 0.72rem; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+/* The plan agent's direction runs long and is worth reading, so it wraps to
+   at most three lines instead of being cut at one. */
+.live-fire-vuln-why {
+  grid-column: 1 / -1; font-size: 0.75rem; color: var(--fg-muted);
+  line-height: 1.5; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-fire-vuln.is-new { animation: none; }
+}
+/* Whether a published version was validated. v1 snapshots are emitted before
+   any check; v2 cuts a version only after the integrated bundle passes. */
+.live-fire-snap-verified { font-size: 0.72rem; font-weight: 600; color: var(--ok, #3fa34d); white-space: nowrap; }
+.live-fire-snap-unverified { font-size: 0.72rem; color: var(--fg-muted); white-space: nowrap; }
+/* The diff a blueteam actually produced. Fetched on demand — the board is
+   polled, this is not. */
+.live-fire-vuln-diff-btn {
+  grid-column: 1 / -1; justify-self: start;
+  font: inherit; font-size: 0.72rem;
+  background: none; border: 1px solid var(--line); border-radius: 5px;
+  padding: 0.1rem 0.4rem; cursor: pointer; color: var(--fg-muted);
+}
+.live-fire-vuln-diff-btn:hover { border-color: var(--accent, #4a8fe7); color: var(--fg); }
+.live-fire-vuln-plus { color: var(--ok, #3fa34d); font-variant-numeric: tabular-nums; }
+.live-fire-vuln-minus { color: var(--err, #d14343); font-variant-numeric: tabular-nums; }
+.live-fire-vuln-diff {
+  grid-column: 1 / -1; margin: 0.35rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem; line-height: 1.45;
+  max-height: 22rem; overflow: auto;
+  padding: 0.45rem 0.55rem; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--bg-code, rgba(127,127,127,0.08));
+  white-space: pre; tab-size: 4;
+}
+/* A published patch bundle. Distinct from a flag on purpose: a flag ends a
+   job and its toast is sticky, a patch version is one of several a live-fire
+   job publishes on a short tick, so this one fades. */
+.flag-toast.patch {
+  border-left-color: var(--blue, #4a8fe7);
+  background: linear-gradient(90deg, var(--blue-bg-lo, rgba(74,143,231,0.14)), var(--surface) 55%);
+}
+/* The operator's SLA verdict, and the cycle it feeds. */
+.live-fire-sla { font-size: 0.76rem; color: var(--fg-muted); cursor: pointer; }
+.live-fire-sla input { margin: 0; accent-color: var(--blue, #4a8fe7); }
+.live-fire-blocked.is-scored .live-fire-sla { color: var(--fg); }
+.live-fire-fix {
+  margin-left: auto; font: inherit; font-size: 0.75rem; font-weight: 600;
+  padding: 0.1rem 0.5rem; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--blue, #4a8fe7); background: none; color: var(--blue, #4a8fe7);
+}
+.live-fire-fix:hover:not(:disabled) { background: var(--blue-bg-lo, rgba(74,143,231,0.14)); }
+.live-fire-fix:disabled { opacity: 0.6; cursor: default; }
+
+/* ── execution trace ──────────────────────────────────────────────────
+   Bars, not a chart library. Same reasoning as the dashboard rings: three
+   divs with flex-grow answer this, and a CDN chart script would become the
+   single largest dependency in the app to draw them.
+
+   The one visual rule that carries meaning: a segment that is PRESENT but
+   tiny keeps a floor width, because "the exploit ran for two seconds" is the
+   finding on most jobs, and proportional-only widths would render it at
+   under a pixel. A segment that is ABSENT is not emitted at all — so short
+   and missing never look alike. */
+.tr-feed { display: none; }
+.run-log-window[data-view="trace"] .tr-feed { display: block; }
+.run-log-window[data-view="trace"] .run-log,
+.run-log-window[data-view="trace"] .monitor-feed,
+.run-log-window[data-view="trace"] .gpt-timeline-feed,
+.run-log-window[data-view="trace"] .run-log-search,
+.run-log-window[data-view="trace"] .run-log-search-count,
+.run-log-window[data-view="trace"] .monitor-lang,
+.run-log-window[data-view="trace"] .gpt-tools-toggle { display: none; }
+
+.tr-wrap { padding: 0.75rem 0.9rem 1rem; overflow-y: auto; max-height: 100%; }
+.tr-empty { color: var(--fg-muted); padding: 1.5rem; text-align: center; }
+
+/* Segment colours. agent is deliberately the calm neutral and run the
+   saturated one: on every job in the corpus agent is the overwhelming
+   majority, and colouring the majority loudly would just make the panel
+   shout the same thing on every job. */
+.tr-seg { display: block; min-width: 6px; height: 100%; flex-shrink: 0; }
+.tr-agent { background: var(--blue); opacity: 0.45; }
+.tr-run { background: var(--cyan); }
+.tr-run.ok { background: var(--green); }
+.tr-run.warn { background: var(--yellow); }
+.tr-run.bad { background: var(--red); }
+.tr-adj { background: var(--purple); opacity: 0.75; }
+.tr-adj.ok { background: var(--green-bright); }
+.tr-adj.warn { background: var(--yellow); opacity: 0.7; }
+.tr-adj.bad { background: var(--red); }
+.tr-adj.muted { background: var(--fg-dim); opacity: 0.5; }
+
+.tr-summary { margin-bottom: 0.9rem; }
+.tr-sum-bar {
+  display: flex; height: 16px; border-radius: 3px; overflow: hidden;
+  background: var(--bg-sunken); border: 1px solid var(--line-soft);
+}
+.tr-sum-cells { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.tr-sum-cell { display: flex; align-items: baseline; gap: 0.35rem; font-size: 0.8rem; }
+.tr-sum-swatch {
+  width: 10px; height: 10px; border-radius: 2px; flex: none;
+  align-self: center; min-width: 0;
+}
+.tr-sum-pct { font-weight: 700; color: var(--fg-bright); font-variant-numeric: tabular-nums; }
+.tr-sum-label { color: var(--fg-muted); }
+.tr-sum-abs { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.tr-sum-foot {
+  display: flex; gap: 1.1rem; margin-top: 0.45rem;
+  font-size: 0.76rem; color: var(--fg-dim); flex-wrap: wrap;
+}
+/* Shown rather than asserted in a test: if the lanes ever stop tiling the
+   job's wall clock, the discrepancy is on screen. It is 0.0s on every job. */
+.tr-drift { font-variant-numeric: tabular-nums; }
+.tr-drift.bad { color: var(--red); font-weight: 700; }
+
+.tr-controls {
+  display: flex; align-items: center; gap: 0.4rem;
+  margin: 0.1rem 0 0.5rem; font-size: 0.75rem;
+}
+.tr-scale-label { color: var(--fg-dim); margin-right: 0.15rem; }
+.tr-scale {
+  background: var(--surface); color: var(--fg-muted);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 0.12rem 0.5rem; cursor: pointer; font-size: 0.75rem;
+}
+.tr-scale.active { background: var(--surface-2); color: var(--fg-bright); border-color: var(--line-hi); }
+
+.tr-lanes { display: flex; flex-direction: column; gap: 3px; }
+.tr-lane {
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr) 4.4rem 8.5rem 4rem;
+  align-items: center; gap: 0.5rem; font-size: 0.76rem;
+}
+.tr-lane.open .tr-track { outline: 1px dashed var(--line-hi); outline-offset: 1px; }
+.tr-n { color: var(--fg-dim); text-align: right; font-variant-numeric: tabular-nums; }
+.tr-track {
+  display: flex; height: 13px; border-radius: 2px; overflow: hidden;
+  background: var(--bg-sunken);
+}
+.tr-dur, .tr-cost { font-variant-numeric: tabular-nums; color: var(--fg-muted); text-align: right; }
+.tr-verdict { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-verdict.ok { color: var(--green); }
+.tr-verdict.warn { color: var(--yellow); }
+.tr-verdict.bad { color: var(--red); }
+.tr-verdict.muted { color: var(--fg-dim); }
+.tr-flag { color: var(--green-bright); font-weight: 700; }
+
+.tr-mgr { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; }
+.tr-mgr-line { stroke: var(--cyan); }
+.tr-mgr-dot { fill: var(--cyan-bright); }
+.tr-mgr-label { font-size: 0.75rem; color: var(--fg-muted); }
+
+.tr-notes {
+  margin: 0.8rem 0 0; padding-left: 1.1rem;
+  font-size: 0.76rem; color: var(--fg-muted); line-height: 1.55;
+}
+.tr-legend {
+  margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px solid var(--line-soft);
+  font-size: 0.72rem; color: var(--fg-dim); line-height: 1.6;
+}
+.tr-legend b { color: var(--fg-muted); font-weight: 600; }
+
+/* ── execution trace: graph view ──────────────────────────────────────
+   Hand-drawn SVG, same reason as everything else here. The layout is fixed
+   at 940 units wide and scaled by viewBox, so it stays legible without a
+   layout engine and without a graph library. */
+.tr-graph { margin-top: 0.2rem; }
+.tr-graph svg { display: block; max-width: 100%; height: auto; }
+
+.g-node rect {
+  fill: var(--surface); stroke: var(--line); stroke-width: 1;
+}
+.g-node .g-accent { stroke: none; }
+.g-node .g-title {
+  fill: var(--fg-bright); font-size: 13px; font-weight: 600;
+}
+.g-node .g-sub { fill: var(--fg-muted); font-size: 11px; }
+.g-agent .g-accent { fill: var(--blue); }
+.g-prejudge .g-accent { fill: var(--purple); }
+.g-run .g-accent { fill: var(--cyan); }
+.g-adj .g-accent { fill: var(--purple-bright); }
+.g-gate .g-accent { fill: var(--fg-dim); }
+/* A job that actually captured something should not look like one that did not. */
+.g-gate-hit .g-accent { fill: var(--green-bright); }
+.g-gate-hit rect { stroke: var(--green); }
+
+.g-edge line { stroke: var(--line-hi); stroke-width: 1.5; }
+.g-edge .g-elabel { fill: var(--fg-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.g-head { fill: var(--line-hi); }
+
+/* The edge that exists and does nothing. Dashed and dead-ended on purpose:
+   prejudge raised would_block and every one of those runs went ahead. */
+.g-dead path { stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 4 3; fill: none; }
+.g-dead .g-x { stroke-dasharray: none; stroke-width: 2; }
+.g-dead .g-dead-label { fill: var(--red); font-size: 11px; stroke: none; }
+
+.g-loop path { stroke: var(--yellow); stroke-width: 1.5; fill: none; stroke-dasharray: 5 3; }
+.g-loop .g-loop-label {
+  fill: var(--yellow); font-size: 11.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.g-head-loop { fill: var(--yellow); }
+
+.tr-shape {
+  background: var(--surface); color: var(--fg-muted);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 0.12rem 0.55rem; cursor: pointer; font-size: 0.75rem;
+}
+.tr-shape.active { background: var(--surface-2); color: var(--fg-bright); border-color: var(--line-hi); }
+.tr-ctl-sep {
+  width: 1px; height: 14px; background: var(--line);
+  display: inline-block; margin: 0 0.35rem;
+}
+/* Nothing ever reached this node. Must not read the same as one that ran. */
+.g-node.g-idle rect { fill: var(--bg-sunken); stroke: var(--line-soft); }
+.g-node.g-idle .g-accent { fill: var(--line); }
+.g-node.g-idle .g-title { fill: var(--fg-dim); }
+.g-node.g-idle .g-sub { fill: var(--line-hi); }
+/* Subagents. Their only record anywhere is the provider event stream, so the
+   node is drawn in that stream's own accent rather than borrowing a loop
+   colour that would imply it came from events.jsonl. */
+.g-subagent rect { fill: var(--surface); stroke: var(--line); }
+.g-subagent .g-accent { fill: var(--green); }
+.g-subagent .g-title { font-size: 12px; }
+.g-spawn { stroke: var(--green); stroke-width: 1.3; fill: none; stroke-dasharray: 3 3; }
+.g-head-spawn { fill: var(--green); }
+.g-unused { fill: var(--fg-dim); font-size: 11px; }
+/* Turns the orchestrator pushed into main. Amber, the same colour as the retry
+   loop, because both are the orchestrator acting on the agent rather than the
+   agent acting on its own. Solid, unlike the spawn wire: an injection is not
+   optional for the model -- it arrives as its next user turn. */
+.g-inject rect { fill: var(--surface); stroke: var(--line); }
+.g-inject .g-accent { fill: var(--yellow); }
+.g-inject .g-title { font-size: 12px; }
+.g-injwire { stroke: var(--yellow); stroke-width: 1.5; fill: none; }
+.g-head-inject { fill: var(--yellow); }
+
+/* The jeopardy form's one block of prose: what the operator is NO LONGER being
+   asked. It spans the grid because it belongs to the whole form, not to the
+   column it happens to land in — dropped into a cell it reads like a footnote
+   on "Flag format". */
+.jeopardy-decided-note {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--cyan);
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+.jeopardy-decided-note b { color: var(--fg-bright); font-weight: 600; }
+.panel > form > .form-actions { grid-column: 1 / -1; }
+
+/* The blocked signal on a job tile. Amber, not red: the job is still running
+   and may still land it — this reports that the same verdict has repeated, not
+   that anything has failed. Red would read as a stop, and nothing here stops. */
+.row-blocked {
+  margin-top: 0.3rem;
+  padding: 0.22rem 0.45rem;
+  border-left: 3px solid var(--yellow);
+  background: var(--bg-sunken);
+  border-radius: 3px;
+  font-size: 0.72rem;
+  color: var(--yellow);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── timeline: stats bar, file links, composer ────────────────────────
+   The stats figures come from the same build_trace the 궤적 view uses, so
+   the two cannot disagree. Anything unmeasurable is omitted upstream rather
+   than rendered as a zero. */
+.tl-stats {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  padding: 0.35rem 0.6rem; margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 0.72rem; color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+.tl-stats .tl-sep { color: var(--line); font-style: normal; }
+
+/* A tool that touched a file links to it, through the same preview modal the
+   file browser opens — one viewer, not two. */
+.tl-file { color: var(--cyan); text-decoration: underline; text-underline-offset: 2px; }
+.tl-file:hover { color: var(--cyan-bright); }
+.tl-file-sep { color: var(--line-hi); }
+
+/* Under the flow, always present. Steering used to be a button in a different
+   panel that only appeared while the job ran, so an operator reading the
+   timeline could not see the channel existed. */
+.tl-composer { display: none; flex-direction: column; gap: 0.35rem;
+  padding: 0.5rem 0.6rem; border-top: 1px solid var(--line); background: var(--bg-sunken); }
+.run-log-window[data-view="timeline"] .tl-composer { display: flex; }
+.tl-composer-text {
+  width: 100%; resize: vertical; background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 5px; padding: 0.45rem 0.55rem;
+  font-size: 0.82rem; font-family: inherit;
+}
+.tl-composer-text:focus { outline: none; border-color: var(--line-hi); }
+.tl-composer-text:disabled { color: var(--fg-dim); cursor: not-allowed; }
+.tl-composer-row { display: flex; align-items: center; gap: 0.6rem; }
+.tl-composer-status { flex: 1; font-size: 0.72rem; color: var(--fg-muted); }
+.tl-composer-send {
+  background: var(--purple-solid); color: var(--fg-bright); border: 0;
+  padding: 0.3rem 0.85rem; border-radius: 5px; cursor: pointer; font-size: 0.8rem;
+}
+.tl-composer-send:hover { background: var(--purple-solid-hi); }
+.tl-composer-send:disabled { background: var(--surface-2); color: var(--fg-dim); cursor: not-allowed; }
+
+/* Unplaced trace events — a plain list under the lanes, collapsed by default
+   because the interesting ones are rare and the rest are provenance. */
+.tr-others { margin-top: 0.5rem; }
+.tr-others > summary { cursor: pointer; color: var(--fg-muted); font-size: 0.85rem; }
+.tr-ev { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.tr-ev > li { padding: 0.25rem 0; border-top: 1px solid var(--line); font-size: 0.85rem; }
+.tr-ev-ts { color: var(--fg-dim); margin-left: 0.5rem; }
+.tr-ev-d { color: var(--fg-muted); font-size: 0.8rem; word-break: break-word; }
+
+/* Recorded-but-unshown job diagnostics. Collapsed: they explain a run after
+   the fact and must not compete with the banners above them. */
+.job-diag { margin-top: 0.5rem; }
+.job-diag > summary { cursor: pointer; color: var(--fg-muted); font-size: 0.85rem; }
+.job-diag ul { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.job-diag li { padding: 0.2rem 0; font-size: 0.85rem; display: flex; gap: 0.5rem; }
+.job-diag .diag-k { color: var(--fg-muted); min-width: 14rem; }
+
+/* Findings the monitor pulled out of its own narration. Sits above the feed
+   because it is the summary and the feed is the trail. A row is a CLAIM, not
+   a verdict — the colour grades the claim's own severity, never its truth. */
+.vuln-panel:empty { display: none; }
+.vuln-panel { margin: 0.5rem 0; border: 1px solid var(--line); border-radius: 6px;
+              background: var(--surface-1); }
+.vuln-head { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.45rem 0.6rem;
+             border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+.vuln-head small { color: var(--fg-muted); font-size: 0.78rem; }
+.vuln-list { list-style: none; margin: 0; padding: 0; }
+.vuln-none { padding: 0.5rem 0.6rem; color: var(--fg-muted); font-size: 0.83rem; }
+.vuln-row { padding: 0.45rem 0.6rem; border-top: 1px solid var(--line);
+            display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 0.5rem;
+            align-items: baseline; }
+.vuln-list > .vuln-row:first-child { border-top: none; }
+.vuln-row[data-action] { cursor: pointer; }
+.vuln-row.vuln-picked { background: var(--blue-solid-deep); }
+.vuln-check { color: var(--fg-muted); }
+.vuln-row.vuln-picked .vuln-check { color: var(--cyan); }
+/* Selection bar. Sits between the header and the list so the count and the
+   send button are visible without scrolling past the findings. */
+.vuln-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+            padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); }
+.vuln-count { color: var(--fg-muted); font-size: 0.85rem; }
+.vuln-send, .vuln-clear { font-size: 0.82rem; padding: 0.15rem 0.5rem;
+                          border-radius: 4px; border: 1px solid var(--line-hi);
+                          background: var(--surface-2); color: var(--fg-bright);
+                          cursor: pointer; }
+.vuln-send:disabled, .vuln-clear:disabled { opacity: 0.45; cursor: default; }
+.vuln-bar-status { color: var(--fg-muted); font-size: 0.8rem; }
+.vuln-row[data-action]:hover { background: var(--surface-2); }
+.vuln-row[data-action]:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.vuln-grade { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em;
+              padding: 0.05rem 0.35rem; border-radius: 3px; background: var(--line-hi);
+              color: var(--fg-bright); }
+.vuln-critical .vuln-grade, .vuln-high .vuln-grade { background: var(--red-solid); color: var(--on-accent); }
+.vuln-medium .vuln-grade { background: var(--orange); color: var(--on-accent); }
+.vuln-low .vuln-grade { background: var(--yellow); color: var(--on-accent); }
+.vuln-title { font-weight: 600; }
+.vuln-where { color: var(--fg-muted); font-family: ui-monospace, monospace; font-size: 0.8rem; }
+.vuln-time { color: var(--fg-dim); font-size: 0.78rem; }
+.vuln-why { grid-column: 1 / -1; }
+.vuln-why { color: var(--fg-muted); font-size: 0.82rem; }
+.vuln-dig { color: var(--cyan); font-size: 0.78rem; }
+.vuln-status { color: var(--fg-muted); font-size: 0.78rem; }
+.vuln-row.vuln-sent { opacity: 0.72; }
+.vuln-row.vuln-sent .vuln-dig { display: none; }
