@@ -10,6 +10,23 @@ it is sound. The same principle runs above the pipeline: build and adversarial
 review are handed between models, and a finding only counts once a second
 viewpoint has tried to refute it against the code.
 
+### 목표 — CTF가 남긴 writeup을 RAG로
+
+목표는 CTF를 풀며 생성된 writeup(Exploit Library)으로 RAG를 만드는 것이다.
+
+```text
+CTF job → report.md + exploit (Exploit Library, data/exploits/) → Security RAG → the next agent
+```
+
+A solved job leaves a `report.md` and the exploit or solver that worked.
+Saved to the [Exploit Library](#exploit-library) (`data/exploits/<id>/`),
+they become the corpus of the [Security RAG](security_rag/README.md). The
+RAG indexes each one by root cause, primitive, technique, preconditions and
+mitigations (`security-rag sync-exploits`, or `watch-exploits` as it grows),
+and cites the case and line span behind every answer. An agent that is
+stuck — a weaker local model above all — can then look up how an earlier
+chain got from the primitive it has to the one it needs.
+
 ### 정반합 — the shape every loop here has
 
 The platform has one idea in it, repeated at three scales: **正 (thesis) — 反
