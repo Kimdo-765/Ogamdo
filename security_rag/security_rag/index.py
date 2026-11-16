@@ -9,17 +9,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import sqlite3
 import unicodedata
 from contextlib import contextmanager
+from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urlsplit, urlunsplit
 
-from .ingest import EXPLOIT_SOURCE_TYPE, chunk_markdown, load_exploit_case
-from .query import expand_labels, hangul_index_text, parse_query, required_units, tokens
+from .ingest import EXPLOIT_SOURCE_TYPE, _heading_kind, chunk_markdown, load_exploit_case
+from .query import (
+    PROTECTION_HEADS, analyze_query, expand_labels, hangul_index_text, is_capability, is_protection,
+    required_units, tokens,
+)
 from .sanitize import redact_text
 from .vocab import OUTCOMES, PRIMITIVES, canonical, technique_nodes
 
@@ -31,6 +36,285 @@ FTS_LAYOUT = "2:porter-unicode61:title,section,body,labels,ko"
 _SENSITIVE_KEYS = {"flag", "flags", "target_url", "password", "secret", "secrets", "token", "api_key", "authorization"}
 _KINDS = {"case", "root_cause", "primitive", "technique", "outcome", "condition", "blocker", "artifact", "component"}
 _STATUSES = {"verified", "observed", "candidate", "taxonomy"}
+
+# Which section of a matched case to show. Case-level labels sit on every
+# chunk and bm25 normalizes by row length, so the case's ranking row is
+# usually its shortest one: a Source line, an Outcome or the title. The shown
+# passage is chosen again, from the concepts its own text contains and from
+# how directly its kind of section answers "how".
+_PASSAGE_SKIP = re.compile(
+    r"^(?:source|keywords|run|running it|how to run|usage|results?|artifacts?|files"
+    r"|verification|validation(?: performed)?|status|실행|검증.*|재현)$"
+    # A heading that is only the flag or its capture; a flag checker or a
+    # section on decoding the flag describes a method and stays.
+    r"|^(?:results?\s*[—–-]\s*)?(?:✅\s*)?(?:the\s+)?flags?"
+    r"(?:\s+(?:captured\b.*|content|candidate)|\s*[:=].*)?$"
+    r"|redacted_flag|\bcross.references?\b"
+    # Notes on why a helper template was not used, not the exploit.
+    r"|\bwhy\b.*\bscaffold|scaffold\s+applicability"
+    # A heading that states the flag's name or value gives the answer away;
+    # one about how a checker compares it describes a method and stays.
+    r"|\bflag\s+name\s+is\b|\bflag\s*(?:is|=)\s*[`'\"\[{(<]|플래그\s*(?:명|이름)\s*(?:은|는|:)",
+    re.IGNORECASE,
+)
+_NUMBERING = re.compile(r"^\s*\d+(?:\.\d+)*(?:[.)]|\s*[—–-])?\s+")
+_PASSAGE_PRIORITY: tuple[tuple[re.Pattern[str], float], ...] = (
+    # A retrospective of a failed attempt mentions the right words but is
+    # not the method (checked before "root cause" can claim it).
+    (re.compile(r"\b(?:previous|earlier|failed|failure|post.?mortem|retr(?:y|ies)|dead.?ends?|rejected|abandoned"
+                r"|what went wrong)\b|실패|이전 시도|기각"), 0.3),
+    (re.compile(r"\b(?:pitfalls?|caveats?|gotchas?)\b|주의|함정"), 0.85),
+    (re.compile(r"\bvariants?\b|변형"), 0.75),
+    (re.compile(r"^(?:summary|tl;dr|overview)$|요약|개요|결론"), 0.5),
+    (re.compile(r"^(?:target|target shape|challenge|analysis|background|setup|environment|notes?)\b"), 0.4),
+)
+_KIND_PRIORITY = {
+    "technique": 1.0, "condition": 0.9, "primitive": 0.8, "blocker": 0.7,
+    "root_cause": 0.6, "outcome": 0.25,
+}
+# Free-form library headings that describe a method ("Strategy", "Phase 2 —
+# <step>", "<bug> → <primitive>") rank just below Technique.
+_METHOD_HEADING = re.compile(
+    r"\b(?:strateg(?:y|ies)|approach|attack|exploit(?:ation)?|payload|chain|flow|how it works|solution|solve[rd]?"
+    r"|method|bypass|steps?|phase\s*\d+|stage\s*\d+)\b|→|->|공격|풀이|익스플로잇|단계|우회"
+)
+# A one-unit gain in matched concepts outweighs a small priority gap (Summary
+# over Technique) but not a large one (Outcome over Technique).
+_PRIORITY_WEIGHT = 1.5
+# A digest's method card: the sections that say how, what must hold, what
+# blocks it and what goes wrong, in that order.
+_CARD_SECTIONS = ("Technique", "Preconditions", "Constraint", "Pitfalls")
+_CARD_CHARS = 2800
+_CARD_CAPS = {"Preconditions": 450, "Constraint": 450, "Pitfalls": 650}
+_LEADING_HEADING = re.compile(r"^#{1,6}[ \t][^\n]*\n?")
+_REDACTION_ONLY = re.compile(r"(?:#{1,6}[^\n]*\n)?\W*\[REDACTED_FLAG\]\W*", re.IGNORECASE)
+
+
+# Negated query concepts. A case that relies on what the asker lacks drops;
+# one that worked under the same lack rises. "Relies on" is read from the
+# technique a case used and the mitigations it faced, not from its primitives:
+# those list what the exploit gained on the way. A lacked capability ("no
+# libc leak") never lowers a case, because a case that builds the leak is an
+# answer; only a lacked part of the environment (a hook, a mitigation) does.
+# Blockers often say "no malloc hooks", which marks the case as an answer.
+_CONFLICT_FACTOR = 0.35
+_SHARED_LACK_FACTOR = 1.25
+_USE_FIELDS = ("technique_name", "tags")
+_LACK_FIELDS = ("blockers", "conditions", "mitigations")
+_UNKNOWN_STATES = {"", "none", "null", "unknown", "?"}
+_OFF_STATES = {"no", "off", "disabled", "false", "0", "absent"}
+
+
+def _stem(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
+
+
+def _mentions(values: list[str], unit: Any) -> bool:
+    """Whether any value names the concept; a plural matches its singular."""
+    for value in values:
+        raw = unicodedata.normalize("NFKC", value).casefold()
+        padded = " " + " ".join(_stem(t) for t in tokens(raw)) + " "
+        for alt in unit.alternatives:
+            if alt.korean:
+                if all(word in raw for word in alt.words):
+                    return True
+            elif " " + " ".join(_stem(w) for w in alt.words) + " " in padded:
+                return True
+    return False
+
+
+def _use_and_lack(meta: dict[str, Any]) -> tuple[list[str], list[tuple[str, ...]]]:
+    """What a case says it used, and the lacks it records (as unit-name spans).
+
+    "Used" is the technique and tags, minus what they say the exploit got
+    around ("canary-leak", "safe-linking-bypass"). Each blocker, condition or
+    mitigation is read with the query parser, so only the words a negation
+    covers count as lacked: "PIE on, no leak needed" lacks a leak, not PIE.
+    """
+    used = [_BYPASSED.sub(" ", v) for key in _USE_FIELDS for v in _strings(meta.get(key))]
+    lacked: list[tuple[str, ...]] = []
+    for key in _LACK_FIELDS:
+        value = meta.get(key)
+        if isinstance(value, dict):
+            # Library reports: {"canary": false, "pie": true, "relro": null}.
+            for name, state in value.items():
+                text = str(state).casefold().strip() if state is not None else ""
+                if state is None or text in _UNKNOWN_STATES:
+                    continue  # not recorded, so neither present nor absent
+                if state is False or text in _OFF_STATES:
+                    lacked.append((str(name).casefold(),))
+            continue
+        for item in _strings(value):
+            lacked.extend(_read_item(item))
+    return used, lacked
+
+
+_BYPASSED = re.compile(r"[\w.]+[\s_-]+(?:bypass|leak)\b", re.IGNORECASE)
+
+
+@lru_cache(maxsize=8192)
+def _read_item(item: str) -> tuple[tuple[str, ...], ...]:
+    """The lacks a metadata phrase states, each as its units' names."""
+    return tuple(tuple(u.name for u in span) for span in analyze_query(item).negated)
+
+
+def _negation_effect(
+    meta: dict[str, Any], spans: tuple[tuple[Any, ...], ...], stated: tuple[Any, ...],
+) -> tuple[list[str], list[str]]:
+    """Negated spans this case relies on, and ones it also went without.
+
+    The effect is kept small on purpose, because reading negation from free
+    text is a guess. Only a hook can conflict: "hooks removed" is the one
+    case where a technique (hook overwrite) simply stops existing; a lacked
+    capability may be built by the case, a lacked protection makes its job
+    easier, and other nouns were misread too often. A recorded shared lack
+    wins over a conflict, but not for a case that lacks a protection the
+    asker says they have ("PIE enabled but no PIE leak").
+    """
+    used, lacked = _use_and_lack(meta)
+    positive = {u.name for u in stated}
+    stated_protections = [u for u in stated if is_protection(u)]
+    lacks_stated = any(
+        any(_mentions([lack[-1]], u) for u in stated_protections) for lack in lacked
+    )
+    conflicts: list[str] = []
+    shared: list[str] = []
+    for span in spans:
+        head, modifiers = span[-1], span[:-1]
+        name = " ".join(u.name for u in span)
+        if not lacks_stated and any(_same_lack(lack, span, positive) for lack in lacked):
+            shared.append(name)
+        elif any(_is_hook(u) and _mentions(used, u) for u in span) and (
+            head.name not in positive or any(_mentions(used, m) for m in modifiers)
+        ):
+            conflicts.append(name)
+    return conflicts, shared
+
+
+def _is_hook(unit: Any) -> bool:
+    return any(a.words and a.words[-1] in {"hook", "hooks"} for a in unit.alternatives)
+
+
+def _is_environment(unit: Any) -> bool:
+    """A version number, "glibc" or a protection name: it describes, it does not ask."""
+    return unit.name.replace(" ", "").isdigit() or unit.name in {"glibc", "libc6"} or is_protection(unit)
+
+
+def _same_lack(lack: tuple[str, ...], span: tuple[Any, ...], positive: set[str]) -> bool:
+    """Whether a lack a case records is the asker's.
+
+    The heads must agree ("no malloc hooks" and "free hook removed" describe
+    the same glibc). A capability or a gadget also needs an agreeing
+    modifier when both sides have one: "no heap leak" is shared by a case
+    without any leak, not by one that only lacked a libc leak, and "no pop
+    rdi gadget" not by one without an argument-setting gadget. So does a head
+    the asker also has ("PIE enabled but no PIE leak"). A lack written
+    shorter ("no pop" for "no pop rdi gadget") counts when every word of it
+    is in the span, unless it is a different protection ("no PIE" is not
+    "no PIE leak").
+    """
+    head, modifiers = span[-1], span[:-1]
+    text = " ".join(lack)
+    if _mentions([lack[-1]], head):
+        strict = is_capability(head) or _is_gadget(head) or head.name in positive
+        if strict and modifiers and len(lack) > 1:
+            return any(_mentions([text], m) for m in modifiers)
+        return True
+    words = {_stem(w) for u in span for a in u.alternatives if not a.korean for w in a.words}
+    written = [_stem(t) for t in tokens(text)]
+    if not written or not all(w in words for w in written):
+        return False
+    return written[-1] not in {_stem(p) for p in PROTECTION_HEADS}
+
+
+def _is_gadget(unit: Any) -> bool:
+    return any(a.words and a.words[-1] in {"gadget", "gadgets"} for a in unit.alternatives)
+
+
+def _cut(text: str, size: int) -> str:
+    """``text`` within ``size`` chars, ending on a line or sentence when one is near."""
+    if len(text) <= size:
+        return text
+    piece = text[: max(0, size - 1)]
+    for mark in ("\n", ". "):
+        end = piece.rfind(mark)
+        if end > 0.6 * len(piece):
+            piece = piece[: end + (1 if mark == ". " else 0)]
+            break
+    return piece.rstrip() + "…"
+
+
+def _passage_priority(section: str, title: str) -> float | None:
+    """How directly a section answers "how"; None for one never shown by choice.
+
+    Lists of names (Keywords, cross-references, a digest's title chunk with
+    its Korean title line) match many query words without saying how; their
+    matches still count for the case, but they are not shown by choice.
+    """
+    name = _NUMBERING.sub("", str(section or "")).strip()
+    if str(section or "").strip() == str(title or "").strip():
+        return None
+    low = name.casefold()
+    if _PASSAGE_SKIP.search(low):
+        return None
+    for pattern, value in _PASSAGE_PRIORITY:
+        if pattern.search(low):
+            return value
+    kind = _heading_kind(name)
+    if kind:
+        return _KIND_PRIORITY.get(kind, 0.5)
+    return 0.95 if _METHOD_HEADING.search(low) else 0.5
+
+
+def _method_card(title: str, rows: list[sqlite3.Row], budget: int = _CARD_CHARS) -> dict[str, Any] | None:
+    """The digest's method sections, each with its text and line span.
+
+    A section split across chunks is joined back together. When the whole
+    card is over budget, short sections stay whole and long ones share the rest.
+    """
+    merged: dict[str, list[Any]] = {}
+    for row in rows:
+        name = row["section"]
+        if name not in _CARD_SECTIONS:
+            continue
+        text = _LEADING_HEADING.sub("", row["text"], count=1).strip()
+        if name in merged:
+            merged[name][1] = max(merged[name][1], row["line_end"])
+            merged[name][2].append(text)
+        else:
+            merged[name] = [row["line_start"], row["line_end"], [text]]
+    if not merged:
+        return None
+    parts = [(name, *merged[name]) for name in _CARD_SECTIONS if name in merged]
+    bodies = {name: "\n".join(t for t in texts if t) for name, _start, _end, texts in parts}
+    room = budget
+    # The steps matter most: the other sections get a modest cap first, the
+    # Technique gets the rest, and whatever it leaves goes back to them.
+    take = {name: min(len(bodies[name]), _CARD_CAPS.get(name, 0)) for name in bodies if name != "Technique"}
+    if "Technique" in bodies:
+        take["Technique"] = min(len(bodies["Technique"]), max(room - sum(take.values()), room // 3))
+    spare = room - sum(take.values())
+    for name in ("Pitfalls", "Constraint", "Preconditions"):
+        if spare > 0 and name in bodies:
+            extra = min(len(bodies[name]) - take[name], spare)
+            take[name] += extra
+            spare -= extra
+    texts = {name: _cut(bodies[name], take[name]) for name in bodies}
+    # Characters a cut gave up by ending on a line go back, Technique first.
+    for name in ("Technique", "Pitfalls", "Constraint", "Preconditions"):
+        spare = room - sum(len(t) for t in texts.values())
+        if spare > 0 and name in bodies and len(texts[name]) < len(bodies[name]):
+            texts[name] = _cut(bodies[name], len(texts[name]) + spare)
+    sections = []
+    for name, start, end, _texts in parts:
+        body = texts[name]
+        sections.append({"section": name, "line_start": start, "line_end": end, "text": body,
+                         "truncated": body != bodies[name]})
+    return {
+        "sections": sections,
+        "chars": sum(len(s["text"]) for s in sections),
+        "truncated": any(s["truncated"] for s in sections),
+    }
 
 
 def _now() -> str:
@@ -522,16 +806,45 @@ class RagIndex:
     def search(
         self, query: str, *, module: str | None = None, collection: str | None = None,
         limit: int = 5, module_hint: str | None = None,
-        exclude_case_ids: tuple[str, ...] = (),
+        exclude_case_ids: tuple[str, ...] = (), cards: int = 3,
     ) -> list[dict[str, Any]]:
         """Return one best cited section per case, ordered by relevance.
 
         ``module`` is an exact filter; ``module_hint`` is a soft boost that
         still permits cross-domain technique discovery.
+
+        Cases are ranked on whole rows, case labels included. The section shown
+        for a case is then chosen from that case's own text (see
+        ``_attach_passages``), and each hit says which concepts the shown
+        passage contains (``excerpt_terms``), which the case contains anywhere
+        (``case_terms``), how much of the query it covers (``coverage``) and,
+        for the first ``cards`` writeup digests, its ``method_card``.
         """
-        units = parse_query(query)
+        plan = analyze_query(query)
+        units = list(plan.units)
+        if not units and plan.negated:
+            # Only lacks were named ("no RELRO", "릭 없이"): look for them,
+            # and let the lack decide the order below.
+            units = list({u.name: u for span in plan.negated for u in span}.values())[:12]
         if not units:
             return []
+        # Optional concepts ("filter" for "quotes filtered") only help a
+        # passage clear the gate; they neither rank nor are required.
+        names = {u.name for u in units}
+        searched = units + [u for u in plan.optional if u.name not in names]
+        # Lacked concepts still rank: the cases that name the asker's lack
+        # ("no pop rdi gadget", "hooks removed") are often the answers. They
+        # are never required, so a misread negation costs at most a demotion.
+        lacked = [u for u in {u.name: u for span in plan.negated for u in span}.values() if u.name not in names]
+        ranked = units + lacked
+        # A lacked concept a passage names also counts toward the gate, as an
+        # optional one does: when the lack is the topic ("external entities
+        # disabled"), the answers name it.
+        searched = searched + [u for u in lacked if u.name not in {x.name for x in searched}]
+        rankable = {u.name for u in ranked}
+        # A version number, "glibc" or a protection name only describes the
+        # environment; such words alone never make a passage relevant.
+        content = {u.name for u in units if not _is_environment(u)}
         need = required_units(len(units))
         limit = max(1, min(int(limit), 50))
         # (row, raw relevance, names of the query concepts this passage has)
@@ -546,14 +859,29 @@ class RagIndex:
             params.append(module.casefold())
         columns = """c.collection,c.case_id,c.title,c.source_type,c.source_uri,c.module,c.metadata_json,
                      k.section,k.heading_path,k.line_start,k.line_end,k.text"""
+        # How many passages hold each concept, for coverage weights and for
+        # naming concepts the index has never seen.
+        frequency: dict[str, int] = {}
         with self._connection() as con:
             if self.fts_enabled:
                 # One pass per concept says which passages contain it; the
                 # ranked pass below cannot, because bm25 only returns a sum.
                 having = [
                     {r[0] for r in con.execute("SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?", (u.fts(),))}
-                    for u in units
+                    for u in searched
                 ]
+                frequency = {u.name: len(ids) for u, ids in zip(searched, having)}
+                # A Korean word with no English spelling that no passage
+                # contains is a gap in the vocabulary, not a missing concept:
+                # it does not count toward how many concepts must match, as
+                # long as the question also names a concept the index knows
+                # in English. A question about nothing in the index (a recipe)
+                # still needs its full share and comes back empty.
+                unknown = sum(1 for u in units if not frequency[u.name] and all(a.korean for a in u.alternatives))
+                anchored = any(frequency[u.name] and any(not a.korean for a in u.alternatives) for u in units)
+                if unknown and anchored:
+                    need = required_units(max(1, len(units) - unknown))
+                content = {name for name in content if frequency[name]}
                 sql = f"""SELECT chunks_fts.rowid AS fts_rowid,{columns},
                                   bm25(chunks_fts,0.25,0.5,1.0,3.0,1.0) AS bm_rank
                            FROM chunks_fts
@@ -561,44 +889,219 @@ class RagIndex:
                            JOIN cases c ON c.collection=k.collection AND c.case_id=k.case_id
                            WHERE {' AND '.join(['chunks_fts MATCH ?'] + where)}
                            ORDER BY bm_rank ASC"""
-                match = " OR ".join(f"({u.fts()})" for u in units)
+                match = " OR ".join(f"({u.fts()})" for u in ranked)
                 for row in con.execute(sql, [match] + params):
-                    matched = [u.name for u, ids in zip(units, having) if row["fts_rowid"] in ids]
-                    if len(matched) >= need:
+                    matched = [u.name for u, ids in zip(searched, having) if row["fts_rowid"] in ids]
+                    if len(matched) >= need and (not content or content & set(matched)):
                         candidates.append((row, -float(row["bm_rank"]), matched))
             else:
+                frequency = {u.name: 0 for u in searched}
                 sql = f"""SELECT {columns},k.labels
                            FROM chunks k JOIN cases c ON c.collection=k.collection AND c.case_id=k.case_id
                            WHERE {' AND '.join(['1=1'] + where)}"""
                 for row in con.execute(sql, params):
                     raw = " ".join([row["title"], row["heading_path"] or row["section"], row["text"], row["labels"]])
                     padded = " " + " ".join(tokens(raw)) + " "
-                    matched = [u.name for u in units if u.in_text(padded, raw)]
-                    if len(matched) >= need:
+                    matched = [u.name for u in searched if u.in_text(padded, raw)]
+                    for name in matched:
+                        frequency[name] += 1
+                    if len(matched) >= need and (not content or content & set(matched)):
                         candidates.append((row, float(len(matched)), matched))
-        excluded = set(exclude_case_ids)
-        best: dict[tuple[str, str], dict[str, Any]] = {}
-        for row, score, matched in candidates:
-            if row["case_id"] in excluded:
+            excluded = set(exclude_case_ids)
+            best: dict[tuple[str, str], dict[str, Any]] = {}
+            for row, score, matched in candidates:
+                if row["case_id"] in excluded:
+                    continue
+                # Among passages that clear the floor, prefer the fuller answer;
+                # naming the asker's lack counts as part of the answer.
+                score *= 0.5 + 0.5 * len([n for n in matched if n in rankable]) / len(ranked)
+                matched = [n for n in matched if n in names]
+                if module_hint and row["module"] == module_hint.casefold():
+                    score *= 1.1
+                key = (row["collection"], row["case_id"])
+                hit = {
+                    "case_id": row["case_id"], "collection": row["collection"],
+                    "title": row["title"], "source_type": row["source_type"],
+                    "source_uri": row["source_uri"], "module": row["module"],
+                    "section": row["section"], "heading_path": row["heading_path"],
+                    "line_start": row["line_start"],
+                    "line_end": row["line_end"], "excerpt": row["text"],
+                    "score": round(score, 8), "matched_terms": matched,
+                    "metadata": json.loads(row["metadata_json"]),
+                    "conflict_terms": [], "constraint_terms": [],
+                }
+                if key not in best or hit["score"] > best[key]["score"]:
+                    best[key] = hit
+            if plan.negated:
+                for hit in best.values():
+                    conflicts, shared = _negation_effect(hit["metadata"], plan.negated, plan.units)
+                    if conflicts:
+                        hit["score"] = round(hit["score"] * _CONFLICT_FACTOR, 8)
+                    elif shared:
+                        hit["score"] = round(hit["score"] * _SHARED_LACK_FACTOR, 8)
+                    hit["conflict_terms"], hit["constraint_terms"] = conflicts, shared
+            hits = sorted(best.values(), key=lambda h: (-h["score"], h["collection"], h["case_id"]))[:limit]
+            self._attach_passages(con, hits, units, frequency, cards=cards, negated=plan.negated)
+        return hits
+
+    def _attach_passages(
+        self, con: sqlite3.Connection, hits: list[dict[str, Any]], units: list[Any],
+        frequency: dict[str, int], *, cards: int, negated: tuple[tuple[Any, ...], ...] = (),
+    ) -> None:
+        """Choose each hit's shown section and say what it and its case cover.
+
+        The passage is the case's chunk with the highest sum of the query
+        concepts in its own text, plus ``_PRIORITY_WEIGHT`` times its section
+        priority. A concept the case title or labels already name counts
+        half (it says which case, not which section), and a version number
+        or protection name counts 0.3 (it echoes the asker's environment).
+        A subsection takes its parent heading's priority when that is
+        higher, and a chunk with almost no body counts less. Ties go to the
+        higher priority, then the longer body, then the earlier chunk.
+        Source, Keywords, run logs and empty chunks are shown only when a case
+        has nothing else. Concepts found in the title, the metadata labels or
+        any chunk (Keywords included) count for the case.
+        """
+        if not hits:
+            return
+        total = con.execute("SELECT count(*) AS n FROM chunks").fetchone()["n"] or 1
+        weight = {u.name: math.log(1.0 + total / (1.0 + frequency.get(u.name, 0))) for u in units}
+        order = [u.name for u in units]
+        rows_of: dict[tuple[str, str], list[sqlite3.Row]] = {}
+        for hit in hits:
+            key = (hit["collection"], hit["case_id"])
+            rows_of[key] = con.execute(
+                """SELECT chunk_id,section,heading_path,line_start,line_end,text,labels
+                   FROM chunks WHERE collection=? AND case_id=? ORDER BY line_start,chunk_id""",
+                key,
+            ).fetchall()
+        # Body and title/label matches use the same tokenizer as ranking, so
+        # an inflected form counts here exactly when it counted there. A
+        # Korean spelling is checked against the passage's own text instead:
+        # the ``ko`` column also carries the case title's syllables.
+        in_body: dict[str, set[int]] = {}
+        in_meta: dict[str, set[int]] = {}
+        if self.fts_enabled:
+            # Whole-table matches intersected here: FTS5 evaluates a MATCH
+            # once per value of a ``rowid IN (...)`` list, which cost ~10 ms
+            # per concept.
+            ids = {r["chunk_id"] for rows in rows_of.values() for r in rows}
+            sql = "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?"
+            for u in units:
+                english = " OR ".join(a.fts() for a in u.alternatives if not a.korean)
+                if not english:
+                    in_body[u.name] = in_meta[u.name] = set()
+                    continue
+                in_body[u.name] = {r[0] for r in con.execute(sql, (f"body : ({english})",))} & ids
+                in_meta[u.name] = {r[0] for r in con.execute(sql, (f"{{title labels}} : ({english})",))} & ids
+
+        def has(u: Any, chunk_id: int, raw: str, found: dict[str, set[int]], path: tuple[str, str] | None = None) -> bool:
+            """``raw`` is NFKC-casefolded text; ``path`` its parent headings (padded tokens, raw)."""
+            if path and u.in_text(*path):
+                # A subsection is found through its parent headings, as in
+                # ranking; the heading words are few, so tokens suffice.
+                return True
+            if not self.fts_enabled:
+                return u.in_text(" " + " ".join(tokens(raw)) + " ", raw)
+            if chunk_id in found[u.name]:
+                return True
+            return any(a.korean and a.in_text("", raw) for a in u.alternatives)
+
+        def folded(text: str) -> str:
+            return unicodedata.normalize("NFKC", str(text or "")).casefold()
+
+        shown = 0
+        for hit in hits:
+            hit.update(excerpt_terms=[], case_terms=[], coverage=None, method_card=None)
+            rows = rows_of[(hit["collection"], hit["case_id"])]
+            if not rows:
                 continue
-            # Among passages that clear the floor, prefer the fuller answer.
-            score *= 0.5 + 0.5 * len(matched) / len(units)
-            if module_hint and row["module"] == module_hint.casefold():
-                score *= 1.1
-            key = (row["collection"], row["case_id"])
-            hit = {
-                "case_id": row["case_id"], "collection": row["collection"],
-                "title": row["title"], "source_type": row["source_type"],
-                "source_uri": row["source_uri"], "module": row["module"],
-                "section": row["section"], "heading_path": row["heading_path"],
-                "line_start": row["line_start"],
-                "line_end": row["line_end"], "excerpt": row["text"],
-                "score": round(score, 8), "matched_terms": matched,
-                "metadata": json.loads(row["metadata_json"]),
+            title = hit["title"]
+            # The document's top heading names the whole case, like the
+            # title: it is neither a parent section nor a passage of its own.
+            heads = {str(r["heading_path"] or "").split(" > ")[0].strip() for r in rows}
+            root = heads.pop() if len(heads) == 1 else None
+            case_terms: set[str] = set()
+            meta_text = folded(title + " " + rows[0]["labels"])
+            for u in units:
+                if has(u, rows[0]["chunk_id"], meta_text, in_meta):
+                    case_terms.add(u.name)
+            protections = any(is_protection(u) for u in units)
+            environment = {
+                u.name for u in units
+                if _is_environment(u) or (protections and u.name in {"full", "partial"})
             }
-            if key not in best or hit["score"] > best[key]["score"]:
-                best[key] = hit
-        return sorted(best.values(), key=lambda h: (-h["score"], h["collection"], h["case_id"]))[:limit]
+            term_weight = {
+                u.name: 0.0 if u.name in environment else 0.5 if u.name in case_terms else 1.0
+                for u in units
+            }
+            scored = []
+            for row in rows:
+                # Parent headings count for the passage; the case title, the
+                # first element of every path, does not.
+                path = [p for p in str(row["heading_path"] or "").split(" > ") if p]
+                if path and path[0].strip() in (title.strip(), root):
+                    path = path[1:]
+                parents = folded(" ".join(path[:-1]))
+                parent_words = (" " + " ".join(tokens(parents)) + " ", parents) if parents else None
+                raw = folded(row["text"])
+                present = {u.name for u in units if has(u, row["chunk_id"], raw, in_body, parent_words)}
+                case_terms |= present
+                priority = _passage_priority(row["section"], title)
+                if root and str(row["section"]).strip() == root and not path:
+                    priority = None
+                body = len(_LEADING_HEADING.sub("", row["text"], count=1).strip())
+                if priority is not None:
+                    inherited = [v for v in (_passage_priority(p, title) for p in path[:-1]) if v is not None]
+                    priority = max([priority, *inherited])
+                    if body < 40 or _REDACTION_ONLY.fullmatch(row["text"].strip()):
+                        priority = None  # a heading with nothing under it
+                    elif body < 150:
+                        priority *= 0.6
+                scored.append((row, present, priority, body))
+            eligible = [s for s in scored if s[2] is not None] or [(r, p, 0.0, b) for r, p, _, b in scored]
+            row, present, _priority, _body = max(
+                eligible,
+                key=lambda s: (
+                    # Environment words (version, glibc, protections) echo the
+                    # question; together they count at most 0.3.
+                    round(sum(term_weight[n] for n in s[1]) + (0.3 if environment & s[1] else 0.0)
+                          + _PRIORITY_WEIGHT * s[2], 6),
+                    s[2], min(s[3], 1500), -s[0]["line_start"],
+                ),
+            )
+            hit.update(
+                section=row["section"], heading_path=row["heading_path"],
+                line_start=row["line_start"], line_end=row["line_end"], excerpt=row["text"],
+            )
+            gated = set(hit["matched_terms"])
+            hit["excerpt_terms"] = [n for n in order if n in present]
+            hit["case_terms"] = [n for n in order if n in case_terms]
+            hit["matched_terms"] = [n for n in order if n in case_terms or n in gated]
+            covered = case_terms | gated
+            total_weight = sum(weight.values()) or 1.0
+            hit["coverage"] = {
+                "terms": len(order),
+                "case": sum(1 for n in order if n in covered),
+                "excerpt": len(present),
+                "weighted": round(sum(weight[n] for n in order if n in covered) / total_weight, 3),
+                "missing": [n for n in order if n not in covered],
+                "absent_from_corpus": [n for n in order if frequency.get(n, 0) == 0],
+                "negated": [" ".join(u.name for u in span) for span in negated],
+            }
+            card = None
+            if hit["source_type"] == "writeup_digest" and shown < cards:
+                card = _method_card(title, rows)
+                shown += card is not None
+            hit["method_card"] = card
+        # A one-syllable Korean word never matches the ``ko`` pair index but
+        # can occur in a passage; a concept some hit contains is not absent.
+        found = {n for hit in hits for n in hit["case_terms"]}
+        for hit in hits:
+            if hit["coverage"]:
+                hit["coverage"]["absent_from_corpus"] = [
+                    n for n in hit["coverage"]["absent_from_corpus"] if n not in found
+                ]
 
     def explore(
         self, node: str, *, depth: int = 2, collection: str | None = None,
